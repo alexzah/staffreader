@@ -1,0 +1,14 @@
+# Brahms, Auf dem See, Op. 59 No. 2, in Sämtliche Werke vol. 24
+# (Breitkopf, 1926-27), page 141 of the volume (PDF page 8): the song's
+# last page, bars 60-85 of OpenScore Lieder's transcription of this very
+# scan. Paired system by system and checked by eye against the scan
+# (2026-10-13). This volume is held out of all training.
+id: lied-brahms-p141
+level: 4
+title: Brahms, Auf dem See Op. 59 No. 2, Breitkopf p. 141
+proves: Voice and piano, a real critical-edition page, four sharps, lyrics
+truth: {key: lc5057985, bars: [60, 85]}
+tracks:
+  - {kind: scan, pdf: IMSLP81993-PMLP52754-Brahms_Werke_Band_24_Breitkopf_JB_151_Op_59_scan.pdf, page: 8, layout: [[3, 6], [3, 7], [3, 6], [3, 7]]}
+  - {kind: synthetic, profile: clean}
+  - {kind: synthetic, profile: scan}

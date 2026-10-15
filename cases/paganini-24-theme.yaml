@@ -1,0 +1,9 @@
+# Paganini, Caprice No. 24: the theme and its repeats, on one staff.
+id: paganini-24-theme
+level: 1
+title: Paganini, Caprice No. 24, bars 1-12
+proves: One line of sixteenths, repeat signs, a single staff
+truth: {key: paganini-caprice-24, bars: [1, 12]}
+tracks:
+  - {kind: synthetic, profile: clean}
+  - {kind: synthetic, profile: scan}

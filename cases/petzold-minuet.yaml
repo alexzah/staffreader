@@ -1,0 +1,11 @@
+# Petzold, Minuet in G: the simplest grand staff we hold.
+id: petzold-minuet
+level: 3
+title: Petzold, Minuet in G major, BWV Anh. 114, bars 1-16
+proves: A grand staff, chords in the bass, plain rhythm
+truth: {key: petzold-minuet, bars: [1, 16]}
+# The transcription prints no slurs or dynamics.
+masks: [slurs, dynamics]
+tracks:
+  - {kind: synthetic, profile: clean}
+  - {kind: synthetic, profile: scan}

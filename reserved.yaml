@@ -1,0 +1,5 @@
+# Scans the reader is tested on and never trained on. Every case's scan
+# (cases/*.yaml) is reserved too; this file adds whole volumes kept only for
+# testing. `staffreader testset` builds the reserved test sets from these and the
+# ladder's volumes, keeping every system pairing places.
+volumes: []

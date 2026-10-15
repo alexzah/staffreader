@@ -1,0 +1,12 @@
+# Haydn, String Quartet Op. 64 No. 5, "Lark", I: the first page of the
+# edition the transcription was made from (IMSLP 6557).
+id: lark-opening
+level: 5
+title: Haydn, Quartet Op. 64 No. 5, I, bars 1-14 (IMSLP 6557 p. 1)
+proves: Staccato eighths over rests, a soaring line high above the staff
+truth: {key: lark-quartet-1, bars: [1, 14]}
+tracks:
+  - {kind: scan, pdf: "IMSLP06557-Haydn_-_Op._64,_No._5.pdf", page: 1,
+     layout: [[4, 4], [4, 5], [4, 5]]}
+  - {kind: synthetic, profile: clean}
+  - {kind: synthetic, profile: scan}

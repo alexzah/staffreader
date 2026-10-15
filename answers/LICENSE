@@ -1,0 +1,8 @@
+The answer keys listed in keys.yaml, and the data this project publishes
+(labels, page positions and lists of scans), are dedicated to the public
+domain under CC0 1.0 Universal, as far as any right in them belongs to
+this project: https://creativecommons.org/publicdomain/zero/1.0/
+
+Each answer key's source and its own terms are named in keys.yaml and in
+the manifest of the published zip. The code of this project is licensed
+under the Apache License 2.0 (../LICENSE), and so are its model weights.

@@ -1,0 +1,17 @@
+# Debussy, Arabesque No. 1, page 4 of the Durand edition the DCML
+# transcription was made from (IMSLP 2821): bars 63-86. Systems counted by
+# eye against the scan (2026-10-13) and checked against the transcription's
+# key and time changes. The bottom of the page is warped, so its last
+# system's lower staff tilts and is not found (2026-10-13).
+id: arabesque-1-p4
+level: 4
+title: Debussy, Arabesque No. 1, bars 63-86 (IMSLP 2821 p. 4)
+proves: A real solo-piano page, tall chords, a key change, a crowded last system
+truth: {key: arabesque-1, bars: [63, 86]}
+# The CC0 transcription adds playback marks the print does not show (answers/keys.yaml).
+masks: [dynamics, hairpins, pedal, tempo marks, words]
+tracks:
+  - {kind: scan, pdf: IMSLP02821-Debussy-L066.pdf, page: 4,
+     layout: [[2, 6], [2, 4], [2, 4], [2, 5], [2, 5]]}
+  - {kind: synthetic, profile: clean}
+  - {kind: synthetic, profile: scan}

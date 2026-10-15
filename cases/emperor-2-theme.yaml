@@ -1,0 +1,14 @@
+# Haydn, "Emperor" Quartet, II: page 12 of the very scan OpenScore's
+# transcriber worked from (IMSLP 28079), so the answer has no differences
+# of edition. The page holds the pickup, the theme's 20 bars and the first
+# bars of Variation I.
+id: emperor-2-theme
+level: 5
+title: Haydn, Quartet Op. 76 No. 3, II, theme (IMSLP 28079 p. 12)
+proves: Four parts, alto clef, ornaments, dynamics, a real scan
+truth: {key: emperor-quartet-2, bars: [1, 24]}
+tracks:
+  - {kind: scan, pdf: IMSLP28079-PMLP57211-Op76No3.pdf, page: 12,
+     layout: [[4, 7], [4, 7], [4, 7], [4, 3]]}
+  - {kind: synthetic, profile: clean}
+  - {kind: synthetic, profile: scan}

@@ -1,0 +1,15 @@
+# Mozart, Symphony No. 40, I: the first page of the very edition the
+# transcription was made from (IMSLP 72). The page prints two staves of
+# oboes and clarinets Mozart added later, which the transcription leaves
+# out, and a cello-and-bass staff the transcription writes as two parts.
+id: mozart-40-opening
+level: 6
+title: Mozart, Symphony No. 40, I, bars 1-15 (IMSLP 72 p. 1)
+proves: Eleven staves, transposing horns, an orchestral page
+truth: {key: mozart-40-1, bars: [1, 15]}
+tracks:
+  - {kind: scan, pdf: "IMSLP00072-Mozart_-_Symphony_No_40_in_G_minor,_K550.pdf", page: 1,
+     layout: [[11, 7], [11, 8]],
+     shared: [Contrabass]}
+  - {kind: synthetic, profile: clean}
+  - {kind: synthetic, profile: scan}

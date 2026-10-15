@@ -1,0 +1,14 @@
+# Beethoven, Maigesang, Op. 52 No. 4, in Lieder für eine Singstimme mit
+# Klavierbegleitung (Peters, plate 9535), page 31 (PDF page 8): bars 45-85
+# of OpenScore Lieder's transcription of this scan, piano interludes in
+# sixteenths. Checked by eye against the scan (2026-10-13). Held out of
+# training.
+id: lied-beethoven-p31
+level: 4
+title: Beethoven, Maigesang Op. 52 No. 4, Peters p. 31
+proves: Voice and piano, a Peters engraving, rests across whole systems
+truth: {key: lc6491377, bars: [45, 85]}
+tracks:
+  - {kind: scan, pdf: IMSLP47274-PMLP100562-Beethoven_Lieder_Peters_9535_Op_52_Acht_Gesaenge_und_Lieder.pdf, page: 8, layout: [[3, 8], [3, 9], [3, 8], [3, 8], [3, 8]]}
+  - {kind: synthetic, profile: clean}
+  - {kind: synthetic, profile: scan}

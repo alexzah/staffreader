@@ -1,0 +1,15 @@
+# Debussy, Arabesque No. 1: the first page of the Durand edition the
+# DCML transcription was made from (IMSLP 2821). DCML's encoding is
+# CC BY-NC-SA, which a test may use.
+id: arabesque-1-opening
+level: 4
+title: Debussy, Arabesque No. 1, bars 1-16 (IMSLP 2821 p. 1)
+proves: Triplets across both hands, clef changes, a real piano page
+truth: {key: arabesque-1, bars: [1, 16]}
+# The CC0 transcription adds playback marks the print does not show (answers/keys.yaml).
+masks: [dynamics, hairpins, pedal, tempo marks, words]
+tracks:
+  - {kind: scan, pdf: IMSLP02821-Debussy-L066.pdf, page: 1,
+     layout: [[2, 3], [2, 4], [2, 4], [2, 5]]}
+  - {kind: synthetic, profile: clean}
+  - {kind: synthetic, profile: scan}

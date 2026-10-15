@@ -1,0 +1,16 @@
+# Brahms, Symphony No. 3, I, page 11 of the Breitkopf collected edition the
+# OpenScore transcription was made from (IMSLP 317593): positions 99-110,
+# printed bars 97-108 (the transcription counts two first-ending bars
+# before them; checked by the key change at position 103, printed at
+# rehearsal letter G). Two systems of twelve staves, each joined only by
+# the line at its left edge, since its barlines stop at each family's
+# bracket. The page prints two players on most staves, which the
+# transcription writes as 24 parts. This volume is held out of training.
+id: brahms-3-p11
+level: 6
+title: Brahms, Symphony No. 3, I, printed bars 97-108 (IMSLP 317593 p. 11)
+proves: An orchestral page whose barlines stop at each family's bracket, two players to a staff
+truth: {key: Brahms_Op.90_1, bars: [99, 110]}
+tracks:
+  - {kind: scan, pdf: "IMSLP317593-PMLP01698-Brahms_Werke_Band_2_Breitkopf_JB_3_Op_90_scan.pdf", page: 11,
+     layout: [[12, 6], [12, 6]]}

@@ -1,0 +1,16 @@
+# Boccherini, String Quintet Op. 11 No. 5, Minuetto: the Ricordi edition's
+# page 22, checked against the scan bar by bar and corrected by hand
+# (tools/score/corrections/boccherini-op11-5-ricordi-p22.yaml), so its
+# answer is exact for this page.
+id: boccherini-p22
+level: 5
+title: Boccherini, Quintet Op. 11 No. 5, Minuetto, Ricordi p. 22
+proves: Five parts, alto clef, grace notes, a repeat in mid-bar, a real scan
+truth: {key: boccherini-minuet-p22, bars: [1, 14]}
+# The hand correction wrote no dynamics or text.
+masks: [dynamics]
+tracks:
+  - {kind: scan, pdf: IMSLP723647-PMLP504779-boccherini_e_major_cropped.pdf, page: 22,
+     layout: [[5, 4], [5, 5], [5, 5]]}
+  - {kind: synthetic, profile: clean}
+  - {kind: synthetic, profile: scan}

@@ -1,0 +1,16 @@
+# Debussy, Arabesque No. 1, page 3 of the Durand edition the DCML
+# transcription was made from (IMSLP 2821): bars 38-62. Systems counted by
+# eye against the scan (2026-10-13) and checked against the transcription's
+# key and time changes.
+id: arabesque-1-p3
+level: 4
+title: Debussy, Arabesque No. 1, bars 38-62 (IMSLP 2821 p. 3)
+proves: A real solo-piano page, a key change mid-system, chords, both hands in bass clef
+truth: {key: arabesque-1, bars: [38, 62]}
+# The CC0 transcription adds playback marks the print does not show (answers/keys.yaml).
+masks: [dynamics, hairpins, pedal, tempo marks, words]
+tracks:
+  - {kind: scan, pdf: IMSLP02821-Debussy-L066.pdf, page: 3,
+     layout: [[2, 5], [2, 5], [2, 4], [2, 5], [2, 6]]}
+  - {kind: synthetic, profile: clean}
+  - {kind: synthetic, profile: scan}

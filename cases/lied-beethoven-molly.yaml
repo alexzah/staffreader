@@ -1,0 +1,13 @@
+# Beethoven, Mollys Abschied, Op. 52 No. 5, in the Peters Lieder volume,
+# page 33 (PDF page 10): the song's first page, title and five verses of
+# lyrics, bars 1-11 of OpenScore Lieder's transcription of this scan.
+# Checked by eye against the scan (2026-10-13). Held out of training.
+id: lied-beethoven-molly
+level: 4
+title: Beethoven, Mollys Abschied Op. 52 No. 5, Peters p. 33
+proves: A song's opening page, title and five verses of lyrics, voice and piano
+truth: {key: lc6491411, bars: [1, 11]}
+tracks:
+  - {kind: scan, pdf: IMSLP47274-PMLP100562-Beethoven_Lieder_Peters_9535_Op_52_Acht_Gesaenge_und_Lieder.pdf, page: 10, layout: [[3, 3], [3, 4], [3, 4]]}
+  - {kind: synthetic, profile: clean}
+  - {kind: synthetic, profile: scan}

@@ -1,0 +1,13 @@
+# Mozart, String Quartet K. 465, "Dissonance", I: the first page of the
+# Breitkopf edition the transcription was made from (IMSLP 64142): the
+# Adagio's 22 bars and the Allegro's first 20.
+id: dissonance-opening
+level: 5
+title: Mozart, Quartet K. 465, I, bars 1-42 (IMSLP 64142 p. 1)
+proves: Chromatic accidentals, a change of time and tempo mid-system, a real scan
+truth: {key: dissonance-quartet-1, bars: [1, 42]}
+tracks:
+  - {kind: scan, pdf: IMSLP64142-PMLP05226-Mozart_Werke_Breitkopf_Serie_14_KV465.pdf, page: 1,
+     layout: [[4, 8], [4, 9], [4, 9], [4, 8], [4, 8]]}
+  - {kind: synthetic, profile: clean}
+  - {kind: synthetic, profile: scan}

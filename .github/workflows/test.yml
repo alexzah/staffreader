@@ -1,0 +1,39 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install poppler
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - name: Install
+        run: uv sync --group dev
+      - name: Fetch the answer keys
+        # `staffreader fetch` downloads them once the repository is public;
+        # while it is private, the release needs the workflow's token.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download answers-v1 --repo "$GITHUB_REPOSITORY" -D "$RUNNER_TEMP"
+          echo "$(uv run python -c 'from staffreader import answers; print(answers.SHA256)')  $RUNNER_TEMP/answers-v1.zip" | sha256sum -c -
+          mkdir -p ~/.cache/staffreader/answers
+          unzip -q "$RUNNER_TEMP/answers-v1.zip" -d ~/.cache/staffreader/answers
+      - name: Test
+        # Tests that need MuseScore, the answer keys or scans skip themselves.
+        run: uv run pytest -q
+        env:
+          STAFFREADER_DEVICE: cpu
+      - name: Check nothing private is tracked
+        run: uv run python scripts/check_clean.py --history .

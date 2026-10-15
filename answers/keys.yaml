@@ -1,0 +1,120 @@
+# The answer keys the ladder cases score against: what each is, where it
+# came from and under what terms. They are published as one zip on a
+# GitHub release (staffreader fetch downloads it and checks its checksum),
+# never in git. scripts/build_answer_keys.py makes the zip from the files
+# named under `from`, which are on the maintainer's machine, applying any
+# corrections, each read from the printed page named.
+#
+# The keys are dedicated to the public domain (CC0-1.0) as far as any
+# right in them is ours; each source's own terms are given.
+
+petzold-minuet:
+  title: Petzold, Minuet in G
+  source: MuseScore.com, transcribed by Marc Sabatella, in PDMX
+  url: https://musescore.com/user/2975/scores/5653587
+  license: CC0-1.0
+  from: {scores: bundles/petzold-minuet/score.musicxml}
+
+paganini-caprice-24:
+  title: Paganini, Caprice No. 24
+  source: MuseScore.com, transcribed by Evandro Erick, in PDMX
+  url: https://musescore.com/httpswww_facebook_comevandro_erick/scores/92367
+  license: LicenseRef-PublicDomain
+  from: {scores: bundles/paganini-caprice-24/score.musicxml}
+
+mozart-40-1:
+  title: Mozart, Symphony No. 40, first movement
+  source: MuseScore.com, transcribed by eduardomezencio, in PDMX
+  url: https://musescore.com/eduardomezencio/scores/1898076
+  license: CC0-1.0
+  from: {scores: align-agent/work/mozart-40-1/movement.musicxml}
+
+lark-quartet-1:
+  title: Haydn, String Quartet Op. 64 No. 5 ("Lark"), first movement
+  source: OpenScore String Quartets
+  url: https://github.com/OpenScore/StringQuartets/blob/9be3df2ace482130fe031b9e8a647cdf112ed243/scores/Haydn,_Joseph/String_Quartet_in_D_major,_Hob.III63,_Op.64_No.5/sq7284122.mxl
+  license: CC0-1.0
+  from: {scores: bundles/lark-quartet-1/score.musicxml}
+
+emperor-quartet-2:
+  title: Haydn, String Quartet Op. 76 No. 3 ("Emperor"), second movement
+  source: OpenScore String Quartets
+  url: https://github.com/OpenScore/StringQuartets/blob/9be3df2ace482130fe031b9e8a647cdf112ed243/scores/Haydn,_Joseph/String_Quartet_in_C_major,_Hob.III77,_Op.76_No.3/sq20428156.mxl
+  license: CC0-1.0
+  from: {scores: bundles/emperor-quartet-2/score.musicxml}
+
+dissonance-quartet-1:
+  title: Mozart, String Quartet K. 465 ("Dissonance"), first movement
+  source: OpenScore String Quartets
+  url: https://github.com/OpenScore/StringQuartets/blob/9be3df2ace482130fe031b9e8a647cdf112ed243/scores/Mozart,_Wolfgang_Amadeus/String_Quartet_No.19_in_C_major,_K.465_(Op._10,_No._6)/sq7471661.mxl
+  license: CC0-1.0
+  from: {scores: bundles/dissonance-quartet-1/score.musicxml}
+
+boccherini-minuet-p22:
+  title: Boccherini, String Quintet G. 275, minuet, page 22 of Ricordi's edition (plate E.R. 2170)
+  source: read from IMSLP's scan with Audiveris and corrected by hand against it, for this project
+  url: https://imslp.org/wiki/String_Quintet_in_E_major,_G.275_(Boccherini,_Luigi)
+  license: CC0-1.0
+  from: {scores: bundles/boccherini-minuet-p22/score.musicxml}
+
+arabesque-1:
+  title: Debussy, Arabesque No. 1, L. 66
+  source: MuseScore.com, "Debussy Première Arabesque, L. 66, No. 1", transcribed by hmscomp, in PDMX
+  url: https://musescore.com/user/24069/scores/5077352
+  license: CC0-1.0
+  from: {pdmx: mxl/10/25/QmSiufNxXsLotuQDJMEjTj3AbLr5H4K3mfB4LbjeB6UwTm.mxl}
+  # Read from Durand's print (IMSLP 2821), the scan of the ladder pages,
+  # 2026-10-14. Bars count from the first; onsets are in quarter notes.
+  corrections:
+    - {bar: 12, onset: 1, pitch: E4, tie: start}
+    - {bar: 12, onset: 2, pitch: E4, tie: stop}
+    - {bar: 23, onset: 8/3, pitch: G#3, to: A3}
+    - {bar: 64, onset: 1, pitch: G#3, to: G3, accidental: natural}
+    - {bar: 82, onset: 1, pitch: E4, tie: start}
+    - {bar: 82, onset: 2, pitch: E4, tie: stop}
+    - {bar: 99, onset: 10/3, pitch: E5, to: B5}
+  # The transcription adds marks for playback that the print does not show
+  # (pedaling throughout, tempo changes, extra dynamics), so the cases
+  # that use it leave those families unscored (their masks).
+
+lc6491411:
+  title: Beethoven, Mollys Abschied, Op. 52 No. 5
+  source: OpenScore Lieder
+  url: https://github.com/OpenScore/Lieder/tree/38c5db510224d9facdc4b08d741fc788cfb58ea8/scores/Beethoven,_Ludwig_van/8_Lieder,_Op.52/5_Mollys_Abschied
+  license: CC0-1.0
+  from: {cache: openscore/answers/lc6491411.mxl}
+
+lc6491377:
+  title: Beethoven, Mailied, Op. 52 No. 4
+  source: OpenScore Lieder
+  url: https://github.com/OpenScore/Lieder/tree/38c5db510224d9facdc4b08d741fc788cfb58ea8/scores/Beethoven,_Ludwig_van/8_Lieder,_Op.52/4_Mailied
+  license: CC0-1.0
+  from: {cache: openscore/answers/lc6491377.mxl}
+
+lc5058091:
+  title: Brahms, Regenlied, Op. 59 No. 3
+  source: OpenScore Lieder
+  url: https://github.com/OpenScore/Lieder/tree/38c5db510224d9facdc4b08d741fc788cfb58ea8/scores/Brahms,_Johannes/8_Lieder_und_Gesänge,_Op.59/3_Regenlied
+  license: CC0-1.0
+  from: {cache: openscore/answers/lc5058091.mxl}
+
+lc5057985:
+  title: Brahms, Auf dem See, Op. 59 No. 2
+  source: OpenScore Lieder
+  url: https://github.com/OpenScore/Lieder/tree/38c5db510224d9facdc4b08d741fc788cfb58ea8/scores/Brahms,_Johannes/8_Lieder_und_Gesänge,_Op.59/2_Auf_dem_See
+  license: CC0-1.0
+  from: {cache: openscore/answers/lc5057985.mxl}
+
+Brahms_Op.90_1:
+  title: Brahms, Symphony No. 3, first movement
+  source: OpenScore Orchestra, as kept in the Hauptstimme corpus at commit 8f677853, exported by MuseScore 4
+  url: https://github.com/MarkGotham/Hauptstimme/tree/8f677853c45b74ca0afcd79677e5379c06c82354
+  license: CC0-1.0
+  from: {cache: openscore/orchestra/answers/Brahms_Op.90_1.mxl}
+
+Beethoven_Op.21_1:
+  title: Beethoven, Symphony No. 1, first movement
+  source: OpenScore Orchestra, as kept in the Hauptstimme corpus at commit 8f677853, exported by MuseScore 4
+  url: https://github.com/MarkGotham/Hauptstimme/tree/8f677853c45b74ca0afcd79677e5379c06c82354
+  license: CC0-1.0
+  from: {cache: openscore/orchestra/answers/Beethoven_Op.21_1.mxl}

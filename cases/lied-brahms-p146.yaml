@@ -1,0 +1,14 @@
+# Brahms, Regenlied, Op. 59 No. 3, in Sämtliche Werke vol. 24 (Breitkopf,
+# 1926-27), page 146 of the volume (PDF page 13): bars 72-87 of OpenScore
+# Lieder's transcription of this scan, in 3/2 with dense piano chords.
+# Checked by eye against the scan (2026-10-13). This volume is held out of
+# training.
+id: lied-brahms-p146
+level: 4
+title: Brahms, Regenlied Op. 59 No. 3, Breitkopf p. 146
+proves: Voice and piano chords in 3/2, a real critical-edition page
+truth: {key: lc5058091, bars: [72, 87]}
+tracks:
+  - {kind: scan, pdf: IMSLP81993-PMLP52754-Brahms_Werke_Band_24_Breitkopf_JB_151_Op_59_scan.pdf, page: 13, layout: [[3, 4], [3, 4], [3, 4], [3, 4]]}
+  - {kind: synthetic, profile: clean}
+  - {kind: synthetic, profile: scan}

@@ -1,0 +1,17 @@
+# Beethoven, Symphony No. 1, I, page 10 of the Eulenburg score (ed. Unger)
+# the OpenScore transcription was made from (IMSLP 13842): bars 73-84,
+# checked by the printed bar number 80. The first system prints ten
+# staves and the second six, leaving out those with nothing to play, so a
+# staff's instrument has to be read from its label, not its place. Each
+# wind staff holds two players and the cellos share theirs with the
+# basses, which the transcription writes apart. This volume is held out of
+# training.
+id: beethoven-1-p10
+level: 6
+title: Beethoven, Symphony No. 1, I, bars 73-84 (IMSLP 13842 p. 10)
+proves: An orchestral page whose systems leave out resting staves, two players to a wind staff
+truth: {key: Beethoven_Op.21_1, bars: [73, 84]}
+tracks:
+  - {kind: scan, pdf: "IMSLP13842-Beethoven_-_Symphony_No.1,_Mvt.I_(ed._Unger).pdf", page: 10,
+     layout: [[10, 6], [6, 6]],
+     shared: [Flute 2, Oboe 2, C Clarinet 2, Bassoon 2, C Horn 2, C Trumpet 2, Contrabass]}

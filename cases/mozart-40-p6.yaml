@@ -1,0 +1,18 @@
+# Mozart, Symphony No. 40, I, page 6 of the very edition the transcription
+# was made from (IMSLP 72): bars 86-104. Bar positions checked by eye
+# against the transcription (the tutti at bar 28, the flute's figure in
+# bars 34-36, its entry at bar 52, the exposition's repeat at bar 100).
+# The page prints two staves of oboes and clarinets Mozart added later,
+# which the transcription leaves out, and a cello-and-bass staff the
+# transcription writes as two parts.
+id: mozart-40-p6
+level: 6
+title: Mozart, Symphony No. 40, I, bars 86-104 (IMSLP 72 p. 6)
+proves: An orchestral page, the exposition's repeat and the turn to the development
+truth: {key: mozart-40-1, bars: [86, 104]}
+tracks:
+  - {kind: scan, pdf: "IMSLP00072-Mozart_-_Symphony_No_40_in_G_minor,_K550.pdf", page: 6,
+     layout: [[11, 9], [11, 10]],
+     shared: [Contrabass]}
+  - {kind: synthetic, profile: clean}
+  - {kind: synthetic, profile: scan}
