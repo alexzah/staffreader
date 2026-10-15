@@ -8,7 +8,9 @@ the staff's tokens one at a time, looking back over the grid."""
 
 from __future__ import annotations
 
+import collections
 import math
+from dataclasses import dataclass
 import os
 
 import cv2
@@ -140,7 +142,15 @@ class Reader(nn.Module):
         causal = torch.triu(torch.ones(t, t, device=seq.device, dtype=torch.bool), 1)
         y = self.decoder(x, memory, tgt_mask=causal, tgt_key_padding_mask=seq == PAD,
                          memory_key_padding_mask=pad)
-        return self.out(self.norm(y))
+        out = self.out(self.norm(y))
+        learned = getattr(self, 'learned', None)
+        if learned is not None and not self.training:
+            # A checkpoint trained before the vocabulary grew neither writes
+            # nor weighs a token it never learned: this model's scores run
+            # low, so even a low bias left such tokens a share of every
+            # probability (2026-10-15). Training still reaches them.
+            out[..., learned:] = float('-inf')
+        return out
 
     def forward(self, images, widths, seq):
         memory, pad = self.memory(images, widths)
@@ -195,6 +205,63 @@ class Reader(nn.Module):
 
 
     @torch.no_grad()
+    def fits(self, images: torch.Tensor, widths: torch.Tensor, seqs: list[list[str]], limits: list | None = None,
+             lead: list | None = None, most: float = 0.5, tries: int = 48,
+             skip: list | None = None) -> list[list['Fit']]:
+        """For each staff's reading [seqs], each bar a voice of which runs
+        past its time signature, read again as triplets. A triplet printed
+        without its "3" is read as plain notes, which overfills the bar by
+        a third of the group; the notes and their pitches are right. So
+        runs of three like notes in that voice are tried as triplets until
+        the voice fills the bar (triplet_options), and the model scores
+        each option given the picture. Each Fit says how much less likely
+        the model found the best option than the bar as read (Fit.cost, in
+        nats), so a caller accepts it only where the model was unsure
+        (apply_fits). A staff most of whose bars overfill is left alone:
+        its time signature is wrong or unknown, not its bars. [limits] are
+        the bar lengths in force where each staff begins, where known;
+        [lead] the tokens each reading was made to begin with, such as its
+        task, which [seqs] leave out; [skip], for each staff, the numbers of
+        bars to leave alone (meter_changes)."""
+        out: list[list[Fit]] = [[] for _ in seqs]
+        jobs = []
+        for i, seq in enumerate(seqs):
+            spans = bar_spans(seq, limits[i] if limits else None)
+            over = [sp for b, sp in enumerate(spans) if sp.limit is not None and max(sp.voices, default=0) > sp.limit
+                    and not (skip and b in skip[i])]
+            if over and len(over) <= most * len(spans):
+                jobs += [(i, sp) for sp in over]
+        if not jobs:
+            return out
+        memory, pad = self.memory(images, widths)
+        for i, sp in jobs:
+            read = seqs[i][sp.start:sp.end + 1]
+            options = triplet_options(read, sp.limit, tries)
+            if not options:
+                continue
+            head = [BOS] + [INDEX[t] for t in (lead[i] if lead else [])] + [INDEX[t] for t in seqs[i][:sp.start]]
+            scores = self._scores(memory[i:i + 1], pad[i:i + 1], head, [read] + options)
+            k = max(range(1, len(scores)), key=lambda j: scores[j])
+            out[i].append(Fit(sp.start, sp.end, read, options[k - 1], scores[0] - scores[k]))
+        return out
+
+    def _scores(self, mem, pad, head: list[int], options: list[list[str]], batch: int = 16) -> list[float]:
+        """The log-probability the model gives each of [options] after [head]."""
+        out = []
+        for k in range(0, len(options), batch):
+            chunk = options[k:k + batch]
+            ids = [head + [INDEX[t] for t in o] for o in chunk]
+            longest = max(map(len, ids))
+            seq = torch.full((len(ids), longest), PAD, device=mem.device, dtype=torch.long)
+            for j, x in enumerate(ids):
+                seq[j, :len(x)] = torch.tensor(x, device=mem.device)
+            logp = self.logits(mem.expand(len(ids), -1, -1), pad.expand(len(ids), -1), seq[:, :-1]).float().log_softmax(-1)
+            for j, o in enumerate(chunk):
+                at = torch.arange(len(head) - 1, len(head) - 1 + len(o), device=mem.device)
+                out.append(float(logp[j, at, seq[j, at + 1]].sum()))
+        return out
+
+    @torch.no_grad()
     def chances(self, images: torch.Tensor, widths: torch.Tensor, starts: list[list[str]]) -> torch.Tensor:
         """For each staff, how likely each token is to come next after the
         tokens [starts] (all of one length): a distribution over the
@@ -205,7 +272,7 @@ class Reader(nn.Module):
 
 
 BAR_CAP = 64  # notes in one bar; no music we read has more
-STARTS = [INDEX[t] for t in VOCAB if t.startswith(('N:', 'acc:')) or t in ('R', 'R:measure', 'gr', 'S')]
+STARTS = [INDEX[t] for t in VOCAB if t.startswith(('N:', 'acc:')) or t in ('R', 'R:measure', 'R:multi', 'gr', 'S')]
 
 
 class Budget:
@@ -249,13 +316,14 @@ class Budget:
             return
         if t.startswith(('N:', 'R')) or t in ('gr', 'S'):
             self.used += self._pending()
-            if t == 'R:measure' and self.limit is not None:
+            whole = t in ('R:measure', 'R:multi')  # fills its bar, whatever its length
+            if whole and self.limit is not None:
                 self.used = self.limit
             self.last = {'type': 'quarter', 'dots': 0, 'tuplet': None, 'chord': self.after_chord,
-                         'grace': t == 'gr', 'measure': t == 'R:measure'}
+                         'grace': t == 'gr', 'measure': whole}
             self.after_chord = False
             self.notes += 1
-            if t == 'R:measure':
+            if whole:
                 self.last = None
         elif self.last is not None:
             if t.startswith('d:'):
@@ -264,6 +332,185 @@ class Budget:
                 self.last['dots'] += 1
             elif t.startswith('tup:'):
                 self.last['tuplet'] = t[4:]
+
+
+class BarSum(Budget):
+    """A Budget that also keeps each finished voice's length, so a whole
+    bar can be checked against its time signature."""
+
+    def __init__(self, limit=None):
+        super().__init__(limit)
+        self.voices = []
+        self.closed = None  # every voice's length at the last barline
+
+    def lengths(self) -> list:
+        return self.voices + [self.used + self._pending()]
+
+    def add(self, t: str):
+        if t in tokens.BARLINES:
+            self.closed, self.voices = self.lengths(), []
+        elif t == '&':
+            self.voices.append(self.used + self._pending())
+        super().add(t)
+
+    def fits(self, limit) -> bool:
+        """The bar just closed fills [limit] in every voice that holds music."""
+        voices = [v for v in self.closed or [] if v > 0]
+        return bool(voices) and all(v == limit for v in voices)
+
+    def over(self, limit) -> bool:
+        """The voice being read already runs past [limit] with its finished notes."""
+        return self.used > limit
+
+
+@dataclass
+class Span:
+    start: int  # the bar's first token in the reading
+    end: int  # its barline
+    limit: object  # the bar's length by its time signature, or None
+    voices: list  # each voice's length as read
+    state: BarSum  # the reading's state where the bar starts
+
+
+@dataclass
+class Fit:
+    start: int
+    end: int
+    read: list  # the bar as read, barline included
+    fit: list  # the likeliest reading of it that fills the bar
+    cost: float  # how much less likely the model found the fit, in nats
+
+
+def bar_spans(seq: list[str], limit=None) -> list[Span]:
+    """Every bar of a reading, with the length each of its voices adds up to."""
+    import copy
+    st = BarSum(limit)
+    spans, start, at_start = [], 0, copy.deepcopy(st)
+    for k, t in enumerate(seq):
+        st.add(t)
+        if t in tokens.BARLINES:
+            spans.append(Span(start, k, at_start.limit if at_start.limit is not None else st.limit,
+                              [v for v in st.closed if v > 0], at_start))
+            start, at_start = k + 1, copy.deepcopy(st)
+    return spans
+
+
+def apply_fits(seq: list[str], fits: list[Fit], margin: float) -> list[str]:
+    """[seq] with each bar the re-reading fitted replaced, where the model
+    found the fit at most [margin] nats less likely than its first reading."""
+    out = list(seq)
+    for f in sorted(fits, key=lambda f: -f.start):  # from the end, so earlier places hold
+        if f.cost <= margin:
+            out[f.start:f.end + 1] = f.fit
+    return out
+
+
+def meter_changes(seqs: list[list[str]], limits: list | None = None) -> list[set[int]]:
+    """For each staff of one system, the bars every staff of the system
+    fills to the same length, longer than its time signature: a change of
+    meter that was not printed or not read, not triplets missing their
+    "3", which overfill one staff while the others fill the bar. Bars are
+    matched by number, so only staves read with as many bars count."""
+    spans = [bar_spans(seq, limits[i] if limits else None) for i, seq in enumerate(seqs)]
+    counts = collections.Counter(len(sp) for sp in spans)
+    if not counts:
+        return [set() for _ in seqs]
+    n, _ = counts.most_common(1)[0]
+    same = [i for i, sp in enumerate(spans) if len(sp) == n]
+    changed = set()
+    for b in range(n):
+        lengths = {max(spans[i][b].voices) for i in same if spans[i][b].voices}
+        limit = next((spans[i][b].limit for i in same if spans[i][b].limit is not None), None)
+        if len(same) >= 2 and len(lengths) == 1 and limit is not None and lengths.pop() > limit:
+            changed.add(b)
+    return [changed if i in same else set() for i in range(len(seqs))]
+
+
+def triplet_options(bar: list[str], limit, most: int = 48) -> list[list[str]]:
+    """Readings of one bar, [bar] as read with its barline, in which some
+    runs of three like notes or rests of an overfull voice are made
+    triplets (tup:3:2 after each one's length, chord notes included), so
+    that every voice fills [limit] exactly. Runs of three are taken within
+    runs of like events that carry no tuplet, from the run's start first;
+    at most [most] options, fewest triplets first."""
+    from fractions import Fraction
+    voices, cur = [], []
+    for k, t in enumerate(bar[:-1]):
+        if t == '&':
+            voices.append(cur)
+            cur = []
+        else:
+            cur.append(k)
+    voices.append(cur)
+    per_voice = []  # for each voice: the ways to mend it, as token positions to mark
+    for idx in voices:
+        events, chord, grace = [], False, False  # each event: [type, dots, tuplet, places to mark]
+        for k in idx:
+            t = bar[k]
+            if t == '+':
+                chord = True
+            elif t == 'gr':
+                grace = True
+            elif t.startswith('N:') or t in ('R', 'S'):
+                if chord and events:
+                    events[-1][3].append(None)
+                else:  # a spacer counts in the voice's length but is never made a triplet
+                    events.append([None, 0, None, [None], 'grace' if grace else 'space' if t == 'S' else None])
+                chord = grace = False
+            elif t.startswith('d:') and events:
+                if events[-1][0] is None:
+                    events[-1][0] = t[2:]
+                events[-1][3][-1] = k
+            elif t == '.' and events and events[-1][3][-1] == k - 1:  # a dot right after a length
+                if len(events[-1][3]) == 1:
+                    events[-1][1] += 1
+                events[-1][3][-1] = k
+            elif t.startswith('tup:') and events:
+                events[-1][2] = t[4:]
+        events = [e for e in events if e[0] and e[4] != 'grace' and None not in e[3]]
+        total = sum(tokens.length({'type': e[0], 'dots': e[1], 'tuplet': e[2]}) for e in events)
+        if limit is None or total <= limit:
+            per_voice.append([[]])
+            continue
+        triples = []
+        for s in range(len(events) - 2):
+            run = events[s:s + 3]
+            if all(e[2] is None and e[4] is None and (e[0], e[1]) == (run[0][0], run[0][1]) for e in run):
+                one = tokens.length({'type': run[0][0], 'dots': run[0][1], 'tuplet': None})
+                triples.append((s, one, [p for e in run for p in e[3]]))  # three of [one] become two
+        need, ways, steps = total - limit, [], [0]
+
+        def walk(start: int, left, used: list, last: int):
+            steps[0] += 1
+            if len(ways) >= most or steps[0] > 20 * most:  # a long run of like notes has very many choices
+                return
+            if left == 0:
+                ways.append([p for t in used for p in t[2]])
+                return
+            for j in range(start, len(triples)):
+                t = triples[j]
+                if t[0] <= last or t[1] > left:
+                    continue
+                walk(j + 1, left - t[1], used + [t], t[0] + 2)
+        walk(0, need, [], -1)
+        if not ways:
+            return []
+        per_voice.append(sorted(ways, key=len))
+    options = [[]]
+    for ways in per_voice:
+        options = [a + w for a in options for w in ways][:most]
+    out = []
+    for marks in options:
+        if not marks:
+            continue
+        marked = set(marks)
+        new = []
+        for k, t in enumerate(bar):
+            new.append(t)
+            if k in marked:
+                new.append('tup:3:2')
+        out.append(new)
+    return out
 
 
 def batch_images(images: list[np.ndarray], device) -> tuple[torch.Tensor, torch.Tensor]:
@@ -288,9 +535,13 @@ def grown(weights: dict, model: nn.Module) -> dict:
         if old is not None and old.shape != new.shape and old.shape[1:] == new.shape[1:]:
             fitted = new.clone().to(old.device)
             fitted[:old.shape[0]] = old
+            # A token the checkpoint never learned starts unlikely, so an
+            # older model reads as it did until training teaches it: its
+            # output row is zero and its bias low, so it never outscores a
+            # learned token (a random row did, 2026-10-15).
+            if name == 'out.weight':
+                fitted[old.shape[0]:] = 0.0
             if name == 'out.bias':
-                # A token the checkpoint never learned starts unlikely, so an
-                # older model reads as it did until training teaches it.
                 fitted[old.shape[0]:] = -8.0
             out[name] = fitted
     return out
@@ -300,4 +551,7 @@ def load(path, device=DEVICE) -> Reader:
     state = torch.load(path, map_location=device, weights_only=True)
     model = Reader(**state.get('config', {}))
     model.load_state_dict(grown(state['model'], model))
+    known = state['model']['out.bias'].shape[0]
+    if known < len(VOCAB):
+        model.learned = known  # the tokens it was trained on (Reader.logits)
     return model.to(device).eval()

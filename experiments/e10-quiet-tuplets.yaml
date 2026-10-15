@@ -1,0 +1,14 @@
+# E10: does the reader learn triplets printed without their "3"?
+# Brahms prints the number on the first triplets and leaves it off after,
+# Debussy's Arabesque never prints it; the reader, trained on MuseScore
+# pages that always print it, reads those as plain eighths (the Arabesque
+# trial's bar 2; Brahms's reserved pages). The variant adds 74,169 staves
+# engraved with tuplet numbers and brackets hidden (data/r3-quiet-tuplets).
+name: e10-quiet-tuplets
+base: models/v2-mix/last.pt
+steps: 3500
+lr: 1.0e-4
+runs:
+  control: {data: [r2-single-quarter, r2-grand, real3-v2*8, lieder-d-v2*8, orch-v2*8], tasks: true}
+  variant: {data: [r2-single-quarter, r2-grand, real3-v2*8, lieder-d-v2*8, orch-v2*8, r3-quiet-tuplets],
+            tasks: true, target: {tuplets: tuplets}}

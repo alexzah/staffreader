@@ -81,6 +81,7 @@ class Instrument:
 
 def _plain(label: str) -> str:
     text = unicodedata.normalize('NFKD', label).encode('ascii', 'ignore').decode().lower()
+    text = re.sub(r'([a-z])(\d)|(\d)([a-z])', lambda m: ' '.join(g for g in m.groups() if g), text)  # 'vc1'
     return ' '.join(re.sub(r'[^a-z0-9]+', ' ', text).split())
 
 
@@ -97,7 +98,22 @@ def instrument(label: str | None) -> Instrument | None:
             name, rest = inst, re.sub(rf'(^| ){re.escape(printed)}( |$)', ' ', text, count=1).strip()
             break
     if name is None:
-        return None
+        # A name misread by a letter ('Vic' for 'Viol', 'Kla' for 'Klar'):
+        # the printed name it is closest to, where it is close.
+        import difflib
+        words = text.split()
+        best = (0.0, None, None)
+        for k, w in enumerate(words):
+            for span in (w, ' '.join(words[k:k + 2])):
+                if len(span.replace(' ', '')) < 3:
+                    continue
+                for printed, inst in NAMES:
+                    r = difflib.SequenceMatcher(None, span, printed).ratio()
+                    if r > best[0]:
+                        best = (r, inst, span)
+        if best[0] < 0.85:
+            return None
+        name, rest = best[1], text.replace(best[2], ' ', 1).strip()
     number = None
     if (m := re.search(r'\b(i{1,3}|iv|[1-4])\b', rest)):
         number = {'i': '1', 'ii': '2', 'iii': '3', 'iv': '4'}.get(m.group(1), m.group(1))

@@ -2,4 +2,9 @@
 # (cases/*.yaml) is reserved too; this file adds whole volumes kept only for
 # testing. `staffreader testset` builds the reserved test sets from these and the
 # ladder's volumes, keeping every system pairing places.
-volumes: []
+volumes:
+  # Solo piano, paired with PDMX transcriptions that name these scans
+  # (2026-10-15): Debussy's Pour le piano (Fromont) and Kuhlau's
+  # sonatinas Op. 55 (Schirmer), two publishers and two levels.
+  - 12773
+  - 10162

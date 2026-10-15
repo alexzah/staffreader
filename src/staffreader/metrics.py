@@ -253,6 +253,12 @@ def family(label: str) -> str:
         return 'jumps'
     if label.startswith('multirest:'):
         return 'multi-bar rests'
+    if label.startswith('chord:'):
+        return 'chord symbols'
+    if label.startswith('figures:'):
+        return 'figured bass'
+    if label.startswith(('string:', 'fret:')):
+        return 'tablature'
     return 'ornaments'  # trills, mordents, turns, wavy lines, accidentals on ornaments
 
 

@@ -172,6 +172,8 @@ def _part(part: ET.Element, name: str) -> Part:
         last_onset = Fraction(0)
         for el in m:
             if el.tag == 'attributes':
+                if (n := el.findtext('measure-style/multiple-rest')) and n.strip().isdigit():
+                    directions.append((Fraction(0), None, f'multirest:{int(n)}'))
                 if (d := el.findtext('divisions')) is not None:
                     divisions = int(float(d))
                 if (tr := el.find('transpose')) is not None and not transpose:
@@ -272,6 +274,12 @@ def _part(part: ET.Element, name: str) -> Part:
                 directions += [(at, where, label) for label in _direction_labels(el)]
             elif el.tag == 'sound':
                 directions += [(pos, 1, label) for label in _jumps(el)]
+            elif el.tag == 'harmony' and el.get('print-object') != 'no' and el.find('root') is not None:
+                at = pos + Fraction(int(float(el.findtext('offset', '0'))), divisions)
+                directions.append((at, int(el.findtext('staff', '1')), _chord_label(el)))
+            elif el.tag == 'figured-bass' and el.get('print-object') != 'no' and \
+                    any(len(f) for f in el.findall('figure')):  # an empty one prints nothing
+                directions.append((pos, None, _figures_label(el)))
             elif el.tag == 'barline':
                 side = el.get('location', 'right')
                 if (r := el.find('repeat')) is not None:
@@ -351,8 +359,10 @@ def _note_marks(note: ET.Element, notations: ET.Element | None) -> list[str]:
             for g in child:
                 if g.tag == 'fingering':
                     out.append(f"fingering:{(g.text or '').strip()}")
-                elif g.tag in ('string', 'fret', 'pluck', 'hammer-on', 'pull-off', 'tap'):
-                    continue  # tablature and guitar marks: a later phase
+                elif g.tag in ('string', 'fret'):
+                    out.append(f"{g.tag}:{(g.text or '').strip()}")
+                elif g.tag in ('pluck', 'hammer-on', 'pull-off', 'tap'):
+                    continue  # guitar marks outside the inventory
                 else:
                     out.append(g.tag)
         elif child.tag == 'slur' and child.get('type') in ('start', 'stop'):
@@ -401,6 +411,24 @@ def _direction_labels(direction: ET.Element) -> list[str]:
     if (sound := direction.find('sound')) is not None:
         out += _jumps(sound)
     return out
+
+
+def _chord_label(h: ET.Element) -> str:
+    """A chord symbol by what it means: root, kind, degrees and bass."""
+    def step(el, tag):
+        return f"{el.findtext(tag + '-step')}{_alter(float(el.findtext(tag + '-alter') or 0))}" if el is not None else ''
+    degrees = ''.join(f"({d.findtext('degree-type')}{_alter(float(d.findtext('degree-alter') or 0))}"
+                      f"{(d.findtext('degree-value') or '').strip()})" for d in h.findall('degree'))
+    bass = h.find('bass')
+    return f"chord:{step(h.find('root'), 'root')} {(h.findtext('kind') or 'major').strip()}{degrees}" + \
+        (f"/{step(bass, 'bass')}" if bass is not None else '')
+
+
+def _figures_label(fb: ET.Element) -> str:
+    """A figured bass by its figures, top to bottom."""
+    return 'figures:' + ','.join(f"{f.findtext('prefix') or ''}{(f.findtext('figure-number') or '').strip()}"
+                                 f"{f.findtext('suffix') or ''}{'_' if f.find('extend') is not None else ''}"
+                                 for f in fb.findall('figure'))
 
 
 def _jumps(sound: ET.Element) -> list[str]:

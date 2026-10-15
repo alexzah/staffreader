@@ -14,7 +14,13 @@ between an opening token and ')'. Marks that belong to the whole system
 endings) are written on its top staff only.
 
 New marks are only ever new tokens, added at the end of the vocabulary,
-so a model trained on these keeps its meaning when more come."""
+so a model trained on these keeps its meaning when more come.
+
+Version 3 (2026-10-15) adds the third group of the inventory: chord
+symbols and figured bass, written like words before the note where they
+fall, between 'ch(' or 'fb(' and ')'; a tablature note's string and fret
+and a shape note's head, after the note; and the Schleifer, on the stem.
+Its tokens follow every older one (vocabulary_v3)."""
 
 from __future__ import annotations
 
@@ -53,9 +59,38 @@ DIRECTIONS = ([f'dyn:{d}' for d in DYNAMICS] + ['hp<', 'hp>', 'hp.', 'ds(', 'ds.
 TEXT = [f'c:{SPACE if ch == " " else ch}' for ch in CHARS] + ['c:�', ')']
 
 
+# Version 3.
+SHAPES = ['do', 're', 'mi', 'fa', 'fa up', 'so', 'la', 'ti']  # shape-note heads
+KINDS = ['major', 'minor', 'augmented', 'diminished', 'dominant', 'major-seventh', 'minor-seventh',
+         'diminished-seventh', 'augmented-seventh', 'half-diminished', 'major-minor', 'major-sixth', 'minor-sixth',
+         'dominant-ninth', 'major-ninth', 'minor-ninth', 'dominant-11th', 'major-11th', 'minor-11th',
+         'dominant-13th', 'major-13th', 'minor-13th', 'suspended-second', 'suspended-fourth', 'Neapolitan',
+         'Italian', 'French', 'German', 'pedal', 'power', 'Tristan', 'other', 'none']
+FIGURE_SIGNS = ['sharp', 'flat', 'natural', 'double-sharp', 'flat-flat', 'sharp-sharp', 'slash', 'back-slash', 'plus']
+STEM_V3 = ['m:schleifer']
+NOTE_V3 = ([f"head:{h.replace(' ', '-')}" for h in SHAPES] + [f'str:{n}' for n in range(1, 10)]
+           + [f'fret:{n}' for n in range(0, 31)] + ['fret:?'])
+# A chord symbol: its root (cr: and ca:), its kind (ck:), each degree added,
+# altered or taken away (cd: with cv: and ca:), and a bass after 'c/'.
+CHORD = (['ch('] + [f'cr:{s}' for s in 'ABCDEFG'] + [f'ca:{a}' for a in ('sharp', 'flat', 'double-sharp', 'flat-flat')]
+         + [f'ck:{k}' for k in KINDS] + ['cd:add', 'cd:alter', 'cd:subtract'] + [f'cv:{n}' for n in range(1, 14)]
+         + ['c/'])
+# Figured bass: each figure top to bottom, its prefix, number and suffix, an
+# extender line; figures apart by 'f,'.
+FIGURES = (['fb('] + [f'fp:{a}' for a in FIGURE_SIGNS] + [f'fn:{n}' for n in range(1, 14)]
+           + [f'fs:{a}' for a in FIGURE_SIGNS] + ['fx', 'f,'])
+OPENERS_V3 = {'ch(': 'chord symbols', 'fb(': 'figured bass'}
+ALL_OPENERS = {**OPENERS, **OPENERS_V3}
+
+
 def vocabulary() -> list[str]:
     """The mark tokens, in a fixed order, to follow the note tokens."""
     return STEM + NOTE + DIRECTIONS + TEXT
+
+
+def vocabulary_v3() -> list[str]:
+    """The marks version 3 adds, after every older token."""
+    return STEM_V3 + NOTE_V3 + CHORD + FIGURES
 
 
 def text_tokens(opener: str, text: str) -> list[str]:
@@ -87,7 +122,7 @@ def note_marks(note: ET.Element) -> tuple[list[str], list[str]]:
         own.append('paren')
     head = note.findtext('notehead')
     if head and head not in ('normal', 'none'):
-        own.append(f"head:{head if head in NOTEHEADS else 'other'}")
+        own.append(f"head:{head if head in NOTEHEADS else head.replace(' ', '-') if head in SHAPES else 'other'}")
     if note.find('lyric') is not None and any((ly.findtext('text') or '').strip() for ly in note.findall('lyric')):
         stem.append('ly')
     for notations in note.findall('notations'):
@@ -112,6 +147,8 @@ def note_marks(note: ET.Element) -> tuple[list[str], list[str]]:
                             stem.append(f'm:accmark-{a}')
                     elif g.tag in ORNAMENTS:
                         stem.append(f'm:{g.tag}')
+                    elif g.tag == 'schleifer':
+                        stem.append('m:schleifer')
                     else:
                         stem.append('m:orn-other')
             elif child.tag == 'technical':
@@ -119,6 +156,11 @@ def note_marks(note: ET.Element) -> tuple[list[str], list[str]]:
                     if g.tag == 'fingering':
                         f = (g.text or '').strip()
                         own.append(f'fing:{f}' if f in ('0', '1', '2', '3', '4', '5') else 'fing:?')
+                    elif g.tag == 'string' and (g.text or '').strip() in [str(n) for n in range(1, 10)]:
+                        own.append(f'str:{g.text.strip()}')
+                    elif g.tag == 'fret':
+                        f = (g.text or '').strip()
+                        own.append(f'fret:{f}' if f.isdigit() and int(f) <= 30 else 'fret:?')
                     elif g.tag in TECHNICAL:
                         stem.append(f'm:{g.tag}')
             elif child.tag == 'slur' and child.get('type') in ('start', 'stop'):
@@ -178,6 +220,63 @@ def direction_tokens(direction: ET.Element, top: bool) -> list[str]:
     return out
 
 
+_ALTERS = {1: 'sharp', -1: 'flat', 2: 'double-sharp', -2: 'flat-flat'}
+
+
+def _step_tokens(step: str | None, alter: str | None) -> list[str]:
+    out = [f'cr:{step}'] if step in list('ABCDEFG') else []
+    try:
+        a = int(float(alter or 0))
+    except ValueError:
+        a = 0
+    return out + ([f'ca:{_ALTERS[a]}'] if a in _ALTERS else [])
+
+
+def harmony_tokens(h: ET.Element) -> list[str]:
+    """A chord symbol's tokens: root, kind, degrees and bass. One drawn as
+    a fretboard alone, or hidden, has none."""
+    if h.get('print-object') == 'no':
+        return []
+    root = h.find('root')
+    if root is None:
+        return []
+    kind = (h.findtext('kind') or 'major').strip()
+    out = ['ch('] + _step_tokens(root.findtext('root-step'), root.findtext('root-alter'))
+    out.append(f"ck:{kind if kind in KINDS else 'other'}")
+    for d in h.findall('degree'):
+        what = d.findtext('degree-type')
+        value = (d.findtext('degree-value') or '').strip()
+        if what in ('add', 'alter', 'subtract') and value.isdigit() and 1 <= int(value) <= 13:
+            out += [f'cd:{what}', f'cv:{value}']
+            a = int(float(d.findtext('degree-alter') or 0))
+            if a in _ALTERS:
+                out.append(f'ca:{_ALTERS[a]}')
+    bass = h.find('bass')
+    if bass is not None:
+        out += ['c/'] + _step_tokens(bass.findtext('bass-step'), bass.findtext('bass-alter'))
+    return out + [')']
+
+
+def figure_tokens(fb: ET.Element) -> list[str]:
+    """A figured bass's tokens, its figures top to bottom."""
+    if fb.get('print-object') == 'no':
+        return []
+    out = ['fb(']
+    for k, f in enumerate(fb.findall('figure')):
+        if k:
+            out.append('f,')
+        pre, num, suf = (f.findtext(t) for t in ('prefix', 'figure-number', 'suffix'))
+        if pre in FIGURE_SIGNS:
+            out.append(f'fp:{pre}')
+        if (num or '').strip().isdigit() and 1 <= int(num) <= 13:
+            out.append(f'fn:{int(num)}')
+        if suf in FIGURE_SIGNS:
+            out.append(f'fs:{suf}')
+        if f.find('extend') is not None and f.find('extend').get('type', 'start') != 'stop':
+            out.append('fx')
+    return out + [')'] if len(out) > 1 else []
+
+
 def ending_tokens(barline: ET.Element) -> list[str]:
     """An ending's start (with its number as printed) or its end."""
     out = []
@@ -208,7 +307,7 @@ def write_note_marks(el: ET.Element, marks: list[str]):
     heads = [m[5:] for m in marks if m.startswith('head:')]
     if heads and heads[0] != 'other':
         h = ET.Element('notehead')
-        h.text = heads[0]
+        h.text = heads[0].replace('-', ' ') if heads[0].replace('-', ' ') in SHAPES else heads[0]
         after = ('staff', 'beam', 'notations', 'lyric')
         el.insert(next((k for k, c in enumerate(el) if c.tag in after), len(el)), h)
     groups: dict[str, ET.Element] = {}
@@ -229,6 +328,10 @@ def write_note_marks(el: ET.Element, marks: list[str]):
             ET.SubElement(notations, 'slur', type='start' if m == 'sl(' else 'stop')
         elif m.startswith('fing:'):
             ET.SubElement(group('technical'), 'fingering').text = m[5:] if m != 'fing:?' else ''
+        elif m.startswith('str:'):
+            ET.SubElement(group('technical'), 'string').text = m[4:]
+        elif m.startswith('fret:') and m != 'fret:?':
+            ET.SubElement(group('technical'), 'fret').text = m[5:]
         elif not m.startswith('m:'):
             continue
         else:
@@ -241,6 +344,8 @@ def write_note_marks(el: ET.Element, marks: list[str]):
                 ET.SubElement(group('ornaments'), name, **({'type': 'start'} if name == 'wavy-line' else {}))
             elif name == 'orn-other':
                 ET.SubElement(group('ornaments'), 'other-ornament')
+            elif name == 'schleifer':
+                ET.SubElement(group('ornaments'), 'schleifer')
             elif name.startswith('accmark-'):
                 ET.SubElement(group('ornaments'), 'accidental-mark').text = name[8:]
             elif name.startswith('trem-'):
@@ -267,6 +372,15 @@ def write_direction(m: ET.Element, toks: list[str], staff: int | None):
         d = ET.Element('direction')
         dt = ET.SubElement(d, 'direction-type')
         jump = None
+        if t in OPENERS_V3:
+            j = toks.index(')', i) if ')' in toks[i:] else len(toks)
+            el = (write_harmony if t == 'ch(' else write_figures)(toks[i + 1:j])
+            i = j + 1
+            if el is not None:
+                if staff is not None and t == 'ch(':
+                    ET.SubElement(el, 'staff').text = str(staff)
+                m.append(el)
+            continue
         if t in OPENERS:
             j = toks.index(')', i) if ')' in toks[i:] else len(toks)
             text = read_text(toks[i + 1:j])
@@ -323,6 +437,84 @@ def write_direction(m: ET.Element, toks: list[str], staff: int | None):
         m.append(d)
 
 
+_ALTER_OF = {v: k for k, v in _ALTERS.items()}
+
+
+def write_harmony(toks: list[str]) -> ET.Element | None:
+    """A MusicXML harmony from a chord symbol's tokens."""
+    h = ET.Element('harmony')
+    part, last = h, None
+    root = None
+    for t in toks:
+        if t.startswith('cr:'):
+            if part is h:
+                root = ET.SubElement(h, 'root')
+                ET.SubElement(root, 'root-step').text = t[3:]
+                last = root
+            else:
+                ET.SubElement(part, 'bass-step').text = t[3:]
+                last = part
+        elif t.startswith('ca:') and last is not None:
+            a = str(_ALTER_OF.get(t[3:], 0))
+            tag = {'root': 'root-alter', 'bass': 'bass-alter', 'degree': 'degree-alter'}[last.tag]
+            ET.SubElement(last, tag).text = a
+        elif t.startswith('ck:'):
+            ET.SubElement(h, 'kind').text = t[3:]
+        elif t.startswith('cd:'):
+            last = ET.SubElement(h, 'degree')
+            last.set('_type', t[3:])
+        elif t.startswith('cv:') and last is not None and last.tag == 'degree':
+            ET.SubElement(last, 'degree-value').text = t[3:]
+        elif t == 'c/':
+            part = ET.SubElement(h, 'bass')
+            last = part
+    if root is None:
+        return None
+    if h.find('kind') is None:
+        ET.SubElement(h, 'kind').text = 'major'
+    kind = h.find('kind')  # MusicXML orders root, kind, bass, degree
+    for el in [kind] + h.findall('bass') + h.findall('degree'):
+        h.remove(el)
+        h.append(el)
+    for d in h.findall('degree'):
+        alter = d.find('degree-alter')
+        if alter is None:
+            alter = ET.SubElement(d, 'degree-alter')
+            alter.text = '0'
+        else:
+            d.remove(alter)
+            d.append(alter)
+        ET.SubElement(d, 'degree-type').text = d.attrib.pop('_type')
+    return h
+
+
+def write_figures(toks: list[str]) -> ET.Element | None:
+    """A MusicXML figured bass from its tokens."""
+    fb = ET.Element('figured-bass')
+    fig = None
+    for t in toks + ['f,']:
+        if t == 'f,':
+            if fig is not None and len(fig):
+                order = {'prefix': 0, 'figure-number': 1, 'suffix': 2, 'extend': 3}
+                for el in sorted(list(fig), key=lambda e: order[e.tag]):
+                    fig.remove(el)
+                    fig.append(el)
+                fb.append(fig)
+            fig = ET.Element('figure')
+            continue
+        if fig is None:
+            fig = ET.Element('figure')
+        if t.startswith('fp:'):
+            ET.SubElement(fig, 'prefix').text = t[3:]
+        elif t.startswith('fn:'):
+            ET.SubElement(fig, 'figure-number').text = t[3:]
+        elif t.startswith('fs:'):
+            ET.SubElement(fig, 'suffix').text = t[3:]
+        elif t == 'fx':
+            ET.SubElement(fig, 'extend')
+    return fb if len(fb) else None
+
+
 # The direction tokens and text openers of each family the harness scores
 # (metrics.family), for dropping families an answer key does not hold.
 FAMILY_TOKENS = {
@@ -331,6 +523,8 @@ FAMILY_TOKENS = {
     'pedal': ('ped', 'ped.', 'ped^'),
     'tempo marks': ('mm:', 'mm('),
     'words': ('w(', 'ds(', 'ds.'),
+    'chord symbols': ('ch(',),
+    'figured bass': ('fb(',),
 }
 
 
@@ -347,7 +541,7 @@ def drop(toks: list[str], families) -> list[str]:
         if metronome and t == '.':
             continue
         metronome = False
-        if t in OPENERS and t in gone:
+        if t in ALL_OPENERS and t in gone:
             skipping = True
             continue
         if t in gone or any(g.endswith(':') and t.startswith(g) for g in gone):
@@ -361,13 +555,13 @@ def strip(toks: list[str]) -> list[str]:
     """A staff's tokens without its marks: the notes alone, as format 1
     wrote them. Words and the like go with their characters, and a
     metronome mark with its dots."""
-    marks = set(vocabulary())
+    marks = set(vocabulary()) | set(vocabulary_v3())
     out, skipping, metronome = [], False, False
     for t in toks:
         if skipping:
             skipping = t != ')'
             continue
-        if t in OPENERS:
+        if t in ALL_OPENERS:
             skipping = True
             continue
         if metronome and t == '.':

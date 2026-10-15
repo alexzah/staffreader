@@ -24,8 +24,11 @@ def parts_of(mxl: str):
 
 
 @lru_cache(maxsize=256)
-def labels(mxl: str, part: int, staff: int, top: bool):
-    return tokens.from_part(parts_of(mxl)[part], staff, top=top)
+def labels(mxl: str, part: int, staff: int, top: bool, with_: int | None = None):
+    parts = parts_of(mxl)
+    if with_ is not None:  # two players printed on one staff (realign.pair_staves)
+        return tokens.from_part(tokens.merged_part(parts[part], parts[with_]), 1, top=top)
+    return tokens.from_part(parts[part], staff, top=top)
 
 
 for name in sys.argv[1:]:
@@ -41,7 +44,7 @@ for name in sys.argv[1:]:
             place = re.search(r'-n(\d+)\.png$', r['image'])
             top = int(place.group(1)) == 0 if place else (r['part'], r['staff']) == (0, 1)
             try:
-                bars, states = labels(r['mxl'], r['part'], r['staff'], top)
+                bars, states = labels(r['mxl'], r['part'], r['staff'], top, r.get('with'))
             except Exception:
                 continue
             if r['last'] >= len(bars) or not all(s['readable'] for s in states[r['first']:r['last'] + 1]):

@@ -57,6 +57,8 @@ For each slice it gives the scorecard, then ranks slices by **impact**: how far 
 
 The fix comes from studying the evidence, not from a list of known fixes. A list would steer every weakness toward a fix that worked before, and the right fix is often one the project has not needed yet: a change to the model, the data, the layout, the decoding, the assembly or the harness itself.
 
+Before any fix, rule out the test itself. A weak slice is often a wrong answer key, not a weak reader: on 2026-10-15 half the wrong orchestral bars were two wind players on one staff labeled with one player, the orchestral labels carried an analyst's theme letters as lyrics, and a fifth of the real lyric lines sat under another volume's labels through a file-name collision. Each was found by looking at the worst staves' pictures beside their labels, and each would have sent a fix after a weakness that was not there.
+
 Whoever proposes a fix, usually the agent, writes down:
 
 - **What is wrong,** from the gallery and from wrong bars looked at by eye, not from the numbers alone. A number says where the reader is weak, never why.
@@ -106,5 +108,5 @@ Fixes that pass are batched into one long run, which a maintainer approves, sinc
 
 - Compare runs at a fixed number of steps, never a fixed time.
 - Never train on a test page. A ladder case's volume and every reserved volume are kept out of training by the code, not by care.
-- Look at the gallery before choosing a fix, and look at wrong bars by eye before trusting a metric.
+- Look at the gallery before choosing a fix, and look at wrong bars by eye before trusting a metric. When the reading looks right and the label does not, fix the test set first and measure again.
 - Pilot every new kind of data or setting for minutes before a long run (CONVENTIONS.md, "A long job shows its progress and keeps its memory bounded").

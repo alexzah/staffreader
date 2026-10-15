@@ -50,6 +50,10 @@ def vocabulary() -> list[str]:
     from . import marks
     words += marks.vocabulary()  # version 2: the marks of the inventory (marks.py)
     words += ['task:notes', 'task:marks']  # what a reading is to hold: the notes alone, or the marks too
+    # Version 3: a multi-bar rest, its count in digits after it; then the
+    # third group of marks (marks.vocabulary_v3).
+    words += ['R:multi'] + [f'mr:{d}' for d in range(10)]
+    words += marks.vocabulary_v3()
     return words
 
 
@@ -166,6 +170,7 @@ def from_part(part: ET.Element, staff: int = 1, top: bool = True) -> tuple[list[
     clef, key, time = 'G2', 0, None
     measures = part.findall('measure')
     bars, states = [], []
+    rest_until = 0  # the first bar after a multi-bar rest
     for i, m in enumerate(measures):
         opening: dict[str, str] = {}
         start = None
@@ -179,7 +184,12 @@ def from_part(part: ET.Element, staff: int = 1, top: bool = True) -> tuple[list[
         opening_marks: list[str] = []  # an ending that starts with the bar
         closing_marks: list[str] = []  # an ending that stops with it, a fermata on its barline
         pos = last = Fraction(0)
-        unreadable = m.find('.//multiple-rest') is not None
+        unreadable = False
+        if i < rest_until:  # a bar a multi-bar rest before stands for: nothing printed
+            bars.append([])
+            states.append({'clef': clef, 'key': key, 'time': time, 'voices': 0, 'opening': [], 'readable': True})
+            continue
+        multi = m.findtext('.//measure-style/multiple-rest')
         for el in m:
             if el.tag == 'attributes':
                 if (d := el.findtext('divisions')) is not None:
@@ -220,6 +230,17 @@ def from_part(part: ET.Element, staff: int = 1, top: bool = True) -> tuple[list[
                     toks = M.direction_tokens(el, top)
                     if toks:
                         directions.append((pos + Fraction(int(float(el.findtext('offset', '0'))), divisions), toks))
+            elif el.tag == 'harmony':
+                if int(el.findtext('staff', '1')) == staff:
+                    toks = M.harmony_tokens(el)
+                    if toks:
+                        directions.append((pos + Fraction(int(float(el.findtext('offset', '0'))), divisions), toks))
+            elif el.tag == 'figured-bass':
+                # Printed under the part's lowest staff; a file names none.
+                if staff == max(1, int(part.findtext('measure/attributes/staves') or 1)):
+                    toks = M.figure_tokens(el)
+                    if toks:
+                        directions.append((pos, toks))
             elif el.tag == 'barline':
                 if top:
                     ending = M.ending_tokens(el)
@@ -274,6 +295,12 @@ def from_part(part: ET.Element, staff: int = 1, top: bool = True) -> tuple[list[
                 stem[v] += [t for t in stem_marks if t not in stem[v]]
         if start is None:
             start = at_start
+        if multi and multi.strip().isdigit() and int(multi) > 1:
+            # A multi-bar rest: printed as one bar with its count, standing
+            # for the bars after it, which print nothing.
+            rest_until = i + int(multi)
+            streams = {'1': ['R:multi'] + [f'mr:{d}' for d in multi.strip()]}
+            stem = {}
         order = sorted(streams, key=lambda v: (not v.isdigit(), int(v) if v.isdigit() else 0, v))
         for v in order:
             streams[v] += _ordered(stem.pop(v, []))
@@ -373,6 +400,7 @@ class Bar:
     ending_end: str | None = None  # 'end|' or 'end~' where one stops with the bar
     fermata: bool = False  # a fermata on the bar's barline
     after: list[str] = field(default_factory=list)  # marks after the first voice's last note
+    multi: int | None = None  # a multi-bar rest: how many bars this one printed bar stands for
 
 
 def parse(tokens: list[str]) -> list[Bar]:
@@ -380,7 +408,7 @@ def parse(tokens: list[str]) -> list[Bar]:
     marks, and the marks above or below the staff before the note where
     they fall."""
     from . import marks as M
-    stem, own = set(M.STEM), set(M.NOTE)
+    stem, own = set(M.STEM) | set(M.STEM_V3), set(M.NOTE) | set(M.NOTE_V3)
     bars = [Bar()]
     pending: dict = {}
     voice = 0
@@ -406,8 +434,11 @@ def parse(tokens: list[str]) -> list[Bar]:
                 text = None
                 metronome = False
             continue
-        if tok in M.OPENERS:
+        if tok in M.ALL_OPENERS:
             text = [tok]
+            continue
+        if tok.startswith('mr:') and bar.notes and bar.notes[-1].get('multi') is not None:
+            bar.notes[-1]['multi'] = bar.notes[-1]['multi'] * 10 + int(tok[3:])
             continue
         if metronome and tok == '.':
             waiting.append(tok)
@@ -449,8 +480,9 @@ def parse(tokens: list[str]) -> list[Bar]:
             pending['grace'] = True
         elif tok.startswith('acc:'):
             pending['accidental'] = tok[4:]
-        elif tok in ('R', 'R:measure', 'S') or tok.startswith('N:'):
-            note = {'rest': tok.startswith('R'), 'measure': tok == 'R:measure', 'space': tok == 'S',
+        elif tok in ('R', 'R:measure', 'R:multi', 'S') or tok.startswith('N:'):
+            note = {'rest': tok.startswith('R'), 'measure': tok in ('R:measure', 'R:multi'), 'space': tok == 'S',
+                    **({'multi': 0} if tok == 'R:multi' else {}),
                     'pitch': tok[2:] if tok.startswith('N:') else None, 'type': 'quarter', 'dots': 0,
                     'tuplet': None, 'tie': False, 'voice': voice, **pending}
             if waiting and tok != 'S':
@@ -486,6 +518,26 @@ def length(note: dict) -> Fraction:
     return total
 
 
+def _expand_multi(bars: list[Bar]) -> list[Bar]:
+    """A staff's bars with each multi-bar rest written out as the bars it
+    stands for: the first keeps its count (Bar.multi), so it prints as one."""
+    import copy
+    out = []
+    for bar in bars:
+        n = next((x.get('multi') for x in bar.notes if x.get('multi')), None)
+        out.append(bar)
+        if n and n > 1:
+            bar.multi = n
+            for _ in range(n - 1):
+                rest = Bar(notes=[{'rest': True, 'measure': True, 'space': False, 'pitch': None, 'type': 'whole',
+                                   'dots': 0, 'tuplet': None, 'tie': False, 'voice': 0}])
+                rest.barline = '|'
+                out.append(rest)
+            if bar.barline not in (None, '|'):  # a repeat or double bar ends the last of them
+                out[-1].barline, bar.barline = bar.barline, '|'
+    return out
+
+
 def _time_value(t: str) -> tuple[int, int, str | None]:
     if t == 'C':
         return 4, 4, 'common'
@@ -507,6 +559,8 @@ def to_musicxml(staves_of_parts: list[list[list[Bar]]], names: list[str] | None 
         sp = ET.SubElement(plist, 'score-part', id=f'P{p + 1}')
         ET.SubElement(sp, 'part-name').text = names[p] if names and p < len(names) else f'Part {p + 1}'
     # Endings are printed above the system's top staff and belong to every part.
+    top = staves_of_parts[0][0] if staves_of_parts and staves_of_parts[0] else []
+    staves_of_parts = [[_expand_multi(bars) for bars in staves] for staves in staves_of_parts]
     top = staves_of_parts[0][0] if staves_of_parts and staves_of_parts[0] else []
     for p, staves in enumerate(staves_of_parts):
         part = ET.SubElement(root, 'part', id=f'P{p + 1}')
@@ -584,6 +638,9 @@ def to_musicxml(staves_of_parts: list[list[list[Bar]]], names: list[str] | None 
             if (tr := attrs.find('transpose')) is not None:  # MusicXML puts it after the clefs
                 attrs.remove(tr)
                 attrs.append(tr)
+            multi = next((bars[i].multi for bars in staves if i < len(bars) and bars[i].multi), None)
+            if multi:
+                ET.SubElement(ET.SubElement(attrs, 'measure-style'), 'multiple-rest').text = str(multi)
             written = 0
             for s, bars in enumerate(staves):
                 bar = bars[i] if i < len(bars) else Bar()

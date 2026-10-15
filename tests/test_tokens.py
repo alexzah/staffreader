@@ -223,3 +223,94 @@ def test_marks_join_the_notes_of_a_notes_only_reading():
     assert [(e.onset, e.pitch, e.marks) for e in m.events] == [
         (0, 'C5', ('slur-start', 'staccato')), (1, 'D5', ('slur-stop',)), (2, 'E5', ('fermata',))]
     assert m.directions == ((0, 'dyn:p'),)
+
+
+def test_a_tenor_part_in_a_plain_treble_clef_is_written_an_octave_lower():
+    from staffreader.baselines import staffreader as ours
+    bars = tokens.parse('clef:G2 key:0 time:4/4 N:A4 d:half N:C5 d:half | N:G4 d:whole |'.split())
+    shown = tokens.parse('clef:G2-8 key:0 time:4/4 N:A3 d:whole |'.split())
+    ours.tenor_clef([bars, shown])
+    assert bars[0].clef == 'G2-8'
+    assert [n['pitch'] for b in bars for n in b.notes] == ['A3', 'C4', 'G3']
+    assert [n['pitch'] for b in shown for n in b.notes] == ['A3']
+
+
+THIRD_GROUP = """<score-partwise><part-list><score-part id="P1"><part-name>Harpsichord</part-name></score-part></part-list>
+<part id="P1">
+<measure number="1"><attributes><divisions>2</divisions><key><fifths>0</fifths></key>
+  <time><beats>4</beats><beat-type>4</beat-type></time><staves>2</staves>
+  <clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef></attributes>
+  <harmony><root><root-step>C</root-step></root><kind>major</kind>
+    <degree><degree-value>9</degree-value><degree-alter>0</degree-alter><degree-type>add</degree-type></degree>
+    <bass><bass-step>E</bass-step></bass><staff>1</staff></harmony>
+  <note><pitch><step>E</step><octave>5</octave></pitch><duration>4</duration><voice>1</voice><type>half</type>
+    <notehead>mi</notehead><staff>1</staff>
+    <notations><ornaments><schleifer/></ornaments><technical><string>2</string><fret>5</fret></technical></notations></note>
+  <harmony><root><root-step>F</root-step><root-alter>1</root-alter></root><kind>half-diminished</kind><staff>1</staff></harmony>
+  <note><pitch><step>D</step><octave>5</octave></pitch><duration>4</duration><voice>1</voice><type>half</type><staff>1</staff></note>
+  <backup><duration>8</duration></backup>
+  <figured-bass><figure><figure-number>6</figure-number></figure><figure><prefix>sharp</prefix><figure-number>4</figure-number><extend/></figure></figured-bass>
+  <note><pitch><step>C</step><octave>3</octave></pitch><duration>8</duration><voice>5</voice><type>whole</type><staff>2</staff></note>
+</measure>
+<measure number="2"><attributes><measure-style><multiple-rest>3</multiple-rest></measure-style></attributes>
+  <note><rest measure="yes"/><duration>8</duration><voice>1</voice><staff>1</staff></note><backup><duration>8</duration></backup>
+  <note><rest measure="yes"/><duration>8</duration><voice>5</voice><staff>2</staff></note></measure>
+<measure number="3"><note><rest measure="yes"/><duration>8</duration><voice>1</voice><staff>1</staff></note><backup><duration>8</duration></backup>
+  <note><rest measure="yes"/><duration>8</duration><voice>5</voice><staff>2</staff></note></measure>
+<measure number="4"><note><rest measure="yes"/><duration>8</duration><voice>1</voice><staff>1</staff></note><backup><duration>8</duration></backup>
+  <note><rest measure="yes"/><duration>8</duration><voice>5</voice><staff>2</staff></note></measure>
+<measure number="5"><note><pitch><step>G</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
+  <backup><duration>8</duration></backup>
+  <note><pitch><step>G</step><octave>2</octave></pitch><duration>8</duration><voice>5</voice><type>whole</type><staff>2</staff></note></measure>
+</part></score-partwise>"""
+
+
+def test_the_third_group_of_marks_comes_back_through_the_tokens(tmp_path):
+    """Chord symbols, figured bass, tablature, shape notes, the Schleifer
+    and a multi-bar rest, written as tokens and read back, are the score's;
+    the multi-bar rest prints as one bar with its count."""
+    from staffreader import metrics
+    path = tmp_path / 'third.musicxml'
+    path.write_text(THIRD_GROUP)
+    part = ET.fromstring(THIRD_GROUP).find('part')
+    upper, states = tokens.from_part(part, 1)
+    assert upper[1] == ['R:multi', 'mr:3', '|'] and upper[2] == [] and upper[3] == []
+    assert 'ch(' in upper[0] and 'm:schleifer' in upper[0] and 'head:mi' in upper[0] and 'fret:5' in upper[0]
+    lower, _ = tokens.from_part(part, 2)
+    assert 'fb(' in lower[0]
+    truth = canonical.read(path)
+    ours = canonical.parse(tokens.to_musicxml([[tokens.parse(tokens.stretch(b, s, 0, len(b) - 1).tokens)
+                                                for b, s in (tokens.from_part(part, 1), tokens.from_part(part, 2))]]))
+    summary = metrics.compare(truth, ours).summary()
+    for family in ('chord symbols', 'figured bass', 'tablature', 'noteheads', 'ornaments', 'multi-bar rests'):
+        assert summary['marks'][family]['f1'] == 1.0, (family, summary['marks'])
+    assert summary['bar_exact_full'] == 1.0
+
+
+def test_an_older_checkpoint_never_writes_a_token_it_never_learned():
+    """A vocabulary grown since a checkpoint was trained gives the new
+    tokens a zero output row and a low bias, so they never outscore one
+    the checkpoint learned."""
+    import torch
+    from staffreader import model as M
+    net = M.Reader()
+    old = {k: v[:-20] if k in ('embed.weight', 'out.weight', 'out.bias') else v for k, v in net.state_dict().items()}
+    fitted = M.grown(old, net)
+    assert torch.all(fitted['out.weight'][-20:] == 0) and torch.all(fitted['out.bias'][-20:] == -8.0)
+
+
+def test_an_older_checkpoint_reads_as_it_did(tmp_path):
+    """Loaded into a grown vocabulary, a checkpoint neither writes nor
+    weighs the tokens it never learned: their scores are minus infinity
+    when it reads, so every probability is the one it was trained to give."""
+    import torch
+    from staffreader import model as M
+    config = {'dim': 64, 'heads': 2, 'context_layers': 1, 'decoder_layers': 1}
+    net = M.Reader(**config)
+    old = {k: v[:-20] if k in ('embed.weight', 'out.weight', 'out.bias') else v for k, v in net.state_dict().items()}
+    torch.save({'model': old, 'config': config}, tmp_path / 'old.pt')
+    loaded = M.load(tmp_path / 'old.pt', device='cpu')
+    assert loaded.learned == len(M.VOCAB) - 20
+    memory = torch.zeros(1, 4, 64)
+    out = loaded.logits(memory, torch.zeros(1, 4, dtype=torch.bool), torch.tensor([[M.BOS]]))
+    assert torch.isinf(out[0, -1, -20:]).all() and torch.isfinite(out[0, -1, :-20]).all()

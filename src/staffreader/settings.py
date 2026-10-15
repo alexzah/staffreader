@@ -38,6 +38,7 @@ DEFAULTS: dict[str, str | None] = {
     'device': None,
     'model': None,  # the reader's checkpoint, when not the default
     'text_model': None,
+    'triplet_margin': '12',  # nats; a negative margin reads no overfull bar again (baselines/staffreader.py)
 }
 _FILE: dict | None = None
 
