@@ -149,15 +149,18 @@ class Batches(torch.utils.data.IterableDataset):
     line read once, made to look printed and scanned, and the batch's size
     counted as padded, since every line is as wide as its widest."""
 
-    def __init__(self, by_kind: dict[str, list[tuple[str, str]]], budget: int, seed: int):
-        self.by_kind, self.budget, self.seed = by_kind, budget, seed
+    def __init__(self, by_kind: dict[str, list[tuple[str, str]]], budget: int, seed: int,
+                 weights: dict[str, float] | None = None):
+        self.by_kind, self.budget, self.seed, self.weights = by_kind, budget, seed, weights or {}
 
     def __iter__(self):
         info = torch.utils.data.get_worker_info()
         rng = random.Random(self.seed * 1000 + (info.id if info else 0))
         kinds = sorted(self.by_kind)
+        # Each kind as often as the others, unless [weights] says otherwise.
+        odds = [self.weights.get(k, 1.0) for k in kinds]
         while True:
-            pool = self.by_kind[rng.choice(kinds)]
+            pool = self.by_kind[rng.choices(kinds, odds)[0]]
             views, texts, widest = [], [], 0
             while len(views) < 256:
                 path, label = rng.choice(pool)
@@ -184,7 +187,7 @@ class Batches(torch.utils.data.IterableDataset):
 
 
 def train(name: str, dirs: list[str], steps: int, lr: float = 3e-4, budget: int = 40000, resume: str | None = None,
-          workers: int = 6):
+          workers: int = 6, weights: dict[str, float] | None = None):
     """Train a text reader on [dirs]' lines for [steps] steps, a batch
     filling about [budget] pixels of padded width, and measure it on
     held-out lines. Saves models/<name>/last.pt and log.jsonl."""
@@ -201,7 +204,7 @@ def train(name: str, dirs: list[str], steps: int, lr: float = 3e-4, budget: int 
     del items
     gc.collect()
     gc.freeze()  # the workers share these lists rather than copy them
-    loader = torch.utils.data.DataLoader(Batches(by_kind, budget, 0), batch_size=None, num_workers=workers,
+    loader = torch.utils.data.DataLoader(Batches(by_kind, budget, 0, weights), batch_size=None, num_workers=workers,
                                          prefetch_factor=4, persistent_workers=True)
     net = TextReader().to(device)
     if resume:

@@ -89,12 +89,13 @@ def _music(case) -> str:
     return 'quartet' if case.level >= 5 else 'other'
 
 
-def build(model: pathlib.Path) -> dict[str, int]:
+def build(model: pathlib.Path, only: list[str] | None = None) -> dict[str, int]:
     """Pair every reserved scan, reading with [model], and write the test
-    sets. Returns how many staves each set holds."""
+    sets, or only those of the kinds of music [only] names. Returns how
+    many staves each set holds."""
     from . import model as M
     from .progress import Progress
-    plans = plan()
+    plans = {k: v for k, v in plan().items() if not only or v['music'] in only}
     net = M.load(model)
     name = f'{model.parent.name}-{model.stem}'
     bar = Progress('testsets', len(plans), 'scans', 'pairing the reserved scans with their transcriptions, unfiltered')
@@ -130,7 +131,7 @@ def _answer(r: dict) -> pathlib.Path:
             else ORCHESTRA / 'answers' / f'{stem}.mxl' if stem else pathlib.Path(r['mxl']))
 
 
-def lyric_lines(samples: list[dict], out: pathlib.Path) -> list[dict]:
+def lyric_lines(samples: list[dict], out: pathlib.Path, kind: str = 'lyrics') -> list[dict]:
     """Each verse sung under a paired staff, cut from its page as the
     reader cuts it (lyrics.rows) and labeled with its syllables as the
     rendered lines are (data.verse_text). A staff is used only where the
@@ -163,9 +164,9 @@ def lyric_lines(samples: list[dict], out: pathlib.Path) -> list[dict]:
         pad = int(0.4 * staff.space)
         for verse, (a, b) in zip(verses, rows):
             text = ' '.join(verse_text(part, r['staff'], r['first'], r['last'], verse))
-            file = out / 'text' / f"{pathlib.Path(r['image']).stem}-v{verse}.png"
+            file = out / 'text' / f"{pathlib.Path(r['pdf']).stem.split('-')[0]}-{pathlib.Path(r['image']).stem}-v{verse}.png"
             cv2.imwrite(str(file), level[max(0, a - pad):b + pad, int(staff.x0):int(staff.x1) + 1])
-            lines.append({'image': str(file.relative_to(out)), 'text': text, 'kind': 'lyrics', 'font': 'scan'})
+            lines.append({'image': str(file.relative_to(out)), 'text': text, 'kind': kind, 'font': 'scan'})
     with open(out / 'text' / 'lines.jsonl', 'w') as f:
         for line in lines:
             f.write(json.dumps(line) + '\n')
@@ -179,10 +180,13 @@ def _relabel(samples: list[dict]) -> list[dict]:
     for r in samples:
         place = re.search(r'-n(\d+)\.png$', r['image'])
         top = int(place.group(1)) == 0 if place else (r['part'], r['staff']) == (0, 1)
-        key = (r['mxl'], r['part'], r['staff'], top)
+        key = (r['mxl'], r['part'], r['staff'], top, r.get('with'))
         if key not in cache:
             parts = [p for p, _ in _parts(_root(canonical.load(_answer(r))))]
-            cache[key] = tokens.from_part(parts[r['part']], r['staff'], top=top)
+            if r.get('with') is not None:  # two players printed on one staff
+                cache[key] = tokens.from_part(tokens.merged_part(parts[r['part']], parts[r['with']]), 1, top=top)
+            else:
+                cache[key] = tokens.from_part(parts[r['part']], r['staff'], top=top)
         bars, states = cache[key]
         if r['last'] < len(bars) and all(s['readable'] for s in states[r['first']:r['last'] + 1]):
             out.append({**r, 'top': top, 'tokens': tokens.stretch(bars, states, r['first'], r['last']).tokens})

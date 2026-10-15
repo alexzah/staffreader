@@ -17,6 +17,7 @@ articulations and ornaments, lyrics and words.
 from __future__ import annotations
 
 import io
+import re
 import pathlib
 import zipfile
 import xml.etree.ElementTree as ET
@@ -118,6 +119,13 @@ def read(path: str | pathlib.Path) -> Score:
     return parse(load(path))
 
 
+# The Hauptstimme corpus marks its analysis of OpenScore's orchestral
+# scores as red lyrics: a letter for each theme ("a", "b'"), and notes such
+# as "(dev)" or "cad.". They are not printed in the edition and are never
+# sung, which is never red, so they are taken out wherever a score is read.
+_ANALYSIS = re.compile(rb'<lyric\b[^>]*color="#ff0000"[^>]*>.*?</lyric>', re.IGNORECASE | re.DOTALL)
+
+
 def load(path: str | pathlib.Path) -> bytes:
     path = pathlib.Path(path)
     data = path.read_bytes()
@@ -125,7 +133,9 @@ def load(path: str | pathlib.Path) -> bytes:
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             container = ET.fromstring(z.read('META-INF/container.xml'))
             rootfile = next(el for el in container.iter() if el.tag.endswith('rootfile'))
-            return z.read(rootfile.get('full-path'))
+            data = z.read(rootfile.get('full-path'))
+    if b'FF0000' in data.upper():
+        data = _ANALYSIS.sub(b'', data)
     return data
 
 

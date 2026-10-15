@@ -138,6 +138,13 @@ def file_on(pg: Page, fid: str) -> File | None:
     return out
 
 
+def files_on(pg: Page) -> list[File]:
+    """Every score a work page lists (its PDFs, not its recordings), as
+    the page describes each."""
+    ids = dict.fromkeys(re.findall(r'href="/wiki/File:[^"]+\.pdf"[^>]*>#(\d+)</a>', pg.html, re.IGNORECASE))
+    return [f for fid in ids if (f := file_on(pg, fid))]
+
+
 def find_file(fid: str, titles: list[str], query: str | None = None) -> File | None:
     """File #[fid], looked for on the work pages [titles], then on what a
     search for [query] finds. IMSLP's own lookup by number is a Special:

@@ -102,6 +102,15 @@ class Song:
             notes = [_notes(b) for b in bars[:self.count]]
             self.bars[place] = notes + [collections.Counter()] * (self.count - len(notes))
 
+    def together(self, a, b, first: int, last: int) -> list[str] | None:
+        """Two single-staff parts printed on one staff (tokens.merged_part)."""
+        if (a, b) not in self.cut:
+            both = tokens.merged_part(self.parts[a[0]][0], self.parts[b[0]][0])
+            if both is None:
+                return None
+            self.cut[(a, b)] = tokens.from_part(both, 1)
+        return self.tokens((a, b), first, last)
+
     def tokens(self, place, first: int, last: int) -> list[str] | None:
         seq, states = self.cut[place]
         if not all(x['readable'] for x in states[first:last + 1]):
@@ -139,6 +148,40 @@ def place(read: list[list[collections.Counter]], songs: list[Song],
         if later := sorted((f for f in near if f[1] == song and f[2] > last), key=lambda f: f[2]):
             return later[0]
     return max(near, key=lambda f: f[0])
+
+
+def _in_order(plan: list[list]) -> int:
+    """Keep only placements that follow one another: in each song, the
+    longest run of systems whose first bars rise in page order, and only
+    where it has more than one system. A volume holds songs that were never
+    transcribed, and a system of one can resemble a transcribed song closely
+    enough to be placed in it; a test set, which keeps every placement, must
+    not keep those. Returns how many placements it dropped."""
+    by_song: dict[int, list[int]] = {}
+    for i, p in enumerate(plan):
+        if p[2] is not None:
+            by_song.setdefault(p[2][1], []).append(i)
+    dropped = 0
+    for s, idx in by_song.items():
+        firsts = [plan[i][2][2] for i in idx]
+        # The longest strictly rising run of first bars, in page order.
+        best, back = [1] * len(idx), [-1] * len(idx)
+        for b in range(len(idx)):
+            for a in range(b):
+                if firsts[a] < firsts[b] and best[a] + 1 > best[b]:
+                    best[b], back[b] = best[a] + 1, a
+        end = max(range(len(idx)), key=lambda k: best[k])
+        keep = set()
+        while end != -1:
+            keep.add(idx[end])
+            end = back[end]
+        if len(keep) < 2:
+            keep = set()
+        for i in idx:
+            if i not in keep:
+                plan[i][2] = None
+                dropped += 1
+    return dropped
 
 
 def _fill(plan: list[list], songs: list) -> None:
@@ -202,6 +245,7 @@ def pair_volume(pdf: pathlib.Path, rows: list[dict], net, model_name: str, out: 
             after = (got[1], got[2] + count - 1)
         plan.append([key, count, got])
     if fill:
+        report['out of order'] = _in_order(plan)
         _fill(plan, songs)
     samples, grays = [], {}
     for key, count, got in plan:
@@ -372,6 +416,7 @@ def pair_staves(pdf: pathlib.Path, rows: list[dict], net, model_name: str, out: 
         after = (s, first + count - 1)
         plan[-1][2] = (float(best), s, first)
     if fill:
+        report['out of order'] = _in_order(plan)
         _fill(plan, songs)
     samples, grays = [], {}
     for key, count, got in plan:
@@ -387,20 +432,46 @@ def pair_staves(pdf: pathlib.Path, rows: list[dict], net, model_name: str, out: 
         # Each staff takes the part it shares most notes with, best first.
         pairs = sorted(((sum(_shared(read[n][t], song.bars[p][first + t]) for t in range(count)) / count, n, p)
                         for n in range(len(read)) if len(read[n]) == count for p in song.places), reverse=True)
-        used_n, used_p = set(), set()
+        used_n, used_p, chosen = set(), set(), []
         for share, n, p in pairs:
             if n in used_n or p in used_p or share < 0.5:
                 continue
             used_n.add(n)
             used_p.add(p)
+            chosen.append((n, p))
+
+        def agree(want, n):
+            try:
+                return metrics.compare(measure._score(want), measure._score(staves[n])).notes['core'].f1
+            except Exception:
+                return None
+
+        for n, p in chosen:
             report['staves'] += 1
             want = song.tokens(p, first, last)
             if want is None:
                 continue
-            try:
-                f1 = metrics.compare(measure._score(want), measure._score(staves[n])).notes['core'].f1
-            except Exception:
+            f1 = agree(want, n)
+            if f1 is None:
                 continue
+            # Two players printed on one staff (two flutes): a neighboring
+            # part this system gives no staff of its own, whose notes this
+            # staff also holds, and which fits it clearly better together.
+            partner = None
+            for q in song.places:
+                if q in used_p or p[1] != 1 or q[1] != 1 or abs(q[0] - p[0]) != 1 \
+                        or self_count(song, q) != 1 or self_count(song, p) != 1:
+                    continue
+                if sum(_shared(read[n][t], song.bars[q][first + t]) for t in range(count)) / count < 0.5:
+                    continue
+                a, b = (p, q) if p[0] < q[0] else (q, p)
+                both = song.together(a, b, first, last)
+                f1_both = agree(both, n) if both is not None else None
+                if f1_both is not None and f1_both >= f1 + 0.1:
+                    want, f1, partner = both, f1_both, q
+                    used_p.add(q)
+                    report['shared'] = report.get('shared', 0) + 1
+                    break
             if f1 < keep:
                 continue
             report['kept'] += 1
@@ -412,7 +483,15 @@ def pair_staves(pdf: pathlib.Path, rows: list[dict], net, model_name: str, out: 
             file = out / name / f'p{j:04d}-s{k}-n{n}.png'
             file.parent.mkdir(parents=True, exist_ok=True)
             cv2.imwrite(str(file), staffcrop.crop(grays[j], st['lines'], st['x0'], st['x1']))
+            if partner is not None:
+                part = min(p[0], partner[0])
             samples.append({'image': str(file.relative_to(out)), 'mxl': _stem(song),
                             'part': part, 'staff': staff_no, 'first': first, 'last': last, 'font': 'scan',
-                            'pdf': pdf.name, 'page': j, 'tokens': want, 'check_f1': round(f1, 3)})
+                            'pdf': pdf.name, 'page': j, 'tokens': want, 'check_f1': round(f1, 3),
+                            **({'with': max(p[0], partner[0])} if partner is not None else {})})
     return samples, report
+
+
+def self_count(song: Song, place) -> int:
+    """How many staves the part of [place] has."""
+    return song.parts[place[0]][1]

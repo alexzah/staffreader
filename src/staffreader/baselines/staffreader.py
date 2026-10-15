@@ -27,10 +27,12 @@ from .. import model as M
 from ..render import CACHE
 
 
-# The model that reads unless STAFFREADER_MODEL names another: the M4b
-# overnight run after its mixed phase, chosen 2026-10-14
-# as the best all round, solo piano above all.
-DEFAULT = CACHE / 'models/m4b-mix/last.pt'
+# The model that reads unless STAFFREADER_MODEL names another: the v2 run
+# of 2026-10-14, which reads every mark of the inventory as a second task.
+# Against m4b-mix on every test set it was better beyond noise in 39 of
+# 70 slices and worse in one (treble clef with an 8 below), and it halved
+# the edits a staff needs (eval-v2-mix).
+DEFAULT = CACHE / 'models/v2-mix/last.pt'
 
 
 def _checkpoint() -> pathlib.Path:
@@ -58,7 +60,7 @@ _NET = None
 def net() -> M.Reader:
     global _NET
     if _NET is None:
-        _NET = M.load(CHECKPOINT, 'cuda' if torch.cuda.is_available() else 'cpu')
+        _NET = M.load(CHECKPOINT)  # on the device setting's device (model.DEVICE)
     return _NET
 
 

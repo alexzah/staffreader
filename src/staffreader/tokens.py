@@ -850,3 +850,97 @@ def merge_marks(notes: list[Bar], marked: list[Bar]) -> list[Bar]:
         nb.after += mb.after
         nb.ending, nb.ending_end, nb.fermata = mb.ending, mb.ending_end, mb.fermata
     return notes
+
+
+def merged_part(a: ET.Element, b: ET.Element) -> ET.Element | None:
+    """Two parts the page prints on one staff (two flutes, two horns), as
+    one part: [a] as its first voice and [b] as its second. Where both play
+    the same note at once (a unison, or "a 2"), it is kept once, and [b]'s
+    rests become silence, since such a staff prints one player's rests.
+    None where the parts' bars do not line up."""
+    import copy
+    out = copy.deepcopy(a)
+    am, bm = out.findall('measure'), b.findall('measure')
+    if len(am) != len(bm):
+        return None
+    div_a = div_b = 1
+
+    def name(note):
+        p = note.find('pitch')
+        return None if p is None else (p.findtext('step'), p.findtext('alter', '0'), p.findtext('octave'))
+
+    for ma, mb in zip(am, bm):
+        for d in ma.iter('divisions'):
+            div_a = int(d.text)
+        for d in mb.iter('divisions'):
+            div_b = int(d.text)
+        scale = Fraction(div_a, div_b)
+        # What [a] plays, and where its bar ends.
+        played, at, last, end = set(), 0, 0, 0
+        for el in ma:
+            if el.tag == 'backup':
+                at -= int(el.findtext('duration', '0'))
+            elif el.tag == 'forward':
+                at += int(el.findtext('duration', '0'))
+            elif el.tag == 'note':
+                chord = el.find('chord') is not None
+                onset = last if chord else at
+                played.add((onset, name(el), int(el.findtext('duration', '0'))))
+                if not chord:
+                    last = at
+                    if el.find('grace') is None:
+                        at += int(el.findtext('duration', '0'))
+            end = max(end, at)
+        # [b]'s notes in groups sounding at once, each with its onset and length.
+        groups, at = [], 0
+        for el in mb:
+            if el.tag in ('backup', 'forward'):
+                d = Fraction(int(el.findtext('duration', '0'))) * scale
+                if d.denominator != 1:
+                    return None
+                at += -int(d) if el.tag == 'backup' else int(d)
+                groups.append((el.tag, int(d)))
+            elif el.tag == 'note' and el.find('grace') is None:
+                d = Fraction(int(el.findtext('duration', '0'))) * scale
+                if d.denominator != 1:
+                    return None
+                if el.find('chord') is not None and groups and groups[-1][0] == 'notes':
+                    groups[-1][3].append(el)
+                    continue
+                groups.append(('notes', at, int(d), [el]))
+                at += int(d)
+        added = []
+        for g in groups:
+            if g[0] != 'notes':
+                added.append(ET.Element(g[0]))
+                ET.SubElement(added[-1], 'duration').text = str(g[1])
+                continue
+            _, onset, length, notes = g
+            keep = [n for n in notes if n.find('rest') is None and (onset, name(n), length) not in played]
+            if not keep:
+                silence = ET.Element('forward')
+                ET.SubElement(silence, 'duration').text = str(length)
+                added.append(silence)
+                continue
+            for k, n in enumerate(keep):
+                n = copy.deepcopy(n)
+                for tag in ('chord', 'lyric'):
+                    for c in n.findall(tag):
+                        n.remove(c)
+                if k:
+                    n.insert(0, ET.Element('chord'))
+                n.find('duration').text = str(length)
+                for tag, text in (('voice', '2'), ('staff', '1')):
+                    if n.find(tag) is None:
+                        ET.SubElement(n, tag)
+                    n.find(tag).text = text
+                added.append(n)
+        if not any(e.tag == 'note' for e in added):
+            continue
+        back = ET.Element('backup')
+        ET.SubElement(back, 'duration').text = str(end)
+        rights = [i for i, c in enumerate(ma) if c.tag == 'barline' and c.get('location') == 'right']
+        at = rights[0] if rights else len(ma)
+        for k, e in enumerate([back] + added):
+            ma.insert(at + k, e)
+    return out

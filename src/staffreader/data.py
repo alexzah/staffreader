@@ -196,14 +196,21 @@ def select(workers: int = 16, limit: int | None = None, name: str = 'scores') ->
 
 # --------------------------------------------------------------- rendering
 
-def _clean(xml: bytes, tenor: bool = False) -> str:
+def _clean(xml: bytes, tenor: bool = False, quiet_tuplets: bool = False) -> str:
     """The score as MuseScore should engrave it for training: every bar
     drawn, nothing folded into a multi-bar rest, and laid out by
     MuseScore's own style rather than the upload's. With [tenor], each
     one-staff part in bass clef whose notes lie mostly in the tenor
     range is written in tenor clef instead, as cello, bassoon and
-    trombone parts are, since few uploads use it."""
+    trombone parts are, since few uploads use it. With [quiet_tuplets],
+    tuplets are drawn without their number or bracket, as many printed
+    editions draw triplets once the first group has shown them; the bars
+    still say they are triplets, so the labels do too."""
     root = _root(xml)
+    if quiet_tuplets:
+        for t in root.iter('tuplet'):
+            t.set('show-number', 'none')
+            t.set('bracket', 'no')
     for parent in root.iter():
         for child in list(parent):
             if child.tag in ('measure-style', 'print', 'defaults'):
@@ -454,13 +461,17 @@ def _text_lines(name, page, s_i, first, last, parts, names, staves, boxes, base,
     return out_lines
 
 
-def render(scores: list[dict], seed: int, out: pathlib.Path, tenor: bool = False) -> list[dict]:
+def render(scores: list[dict], seed: int, out: pathlib.Path, tenor: bool = False,
+           quiet_tuplets: bool = False) -> list[dict]:
     """Engrave a batch of chosen scores in one MuseScore style and cut out
     their staves. MuseScore starts once for the batch; a batch it cannot
     finish is engraved again score by score. With [tenor], parts are
     written in tenor clef where they suit it, and only their staves kept."""
     rng = random.Random(seed)
     font, mss = style(rng)
+    if quiet_tuplets:  # and for tuplets the file leaves to the style
+        mss = mss.replace('  </Style>', '    <tupletNumberType>2</tupletNumberType>\n'
+                                         '    <tupletBracketType>2</tupletBracketType>\n  </Style>')
     samples = []
     with tempfile.TemporaryDirectory(dir=CACHE) as tmp:
         tmp = pathlib.Path(tmp)
@@ -469,7 +480,10 @@ def render(scores: list[dict], seed: int, out: pathlib.Path, tenor: bool = False
         for score in scores:
             name = hashlib.sha1(score['mxl'].encode()).hexdigest()[:12]
             try:
-                xml = _clean(canonical.load(PDMX / score['mxl']), tenor)
+                raw = canonical.load(PDMX / score['mxl'])
+                if quiet_tuplets and b'<time-modification' not in raw:
+                    continue  # only scores with tuplets
+                xml = _clean(raw, tenor, quiet_tuplets)
                 if tenor and ' tenor="yes"' not in xml:
                     continue
                 (tmp / f'{name}.musicxml').write_text(xml)
@@ -510,16 +524,16 @@ def render(scores: list[dict], seed: int, out: pathlib.Path, tenor: bool = False
 
 
 def _render_one(args):
-    scores, seed, out, tenor = args
+    scores, seed, out, tenor, quiet = args
     try:
-        return render(scores, seed, out, tenor)
+        return render(scores, seed, out, tenor, quiet)
     except Exception as e:  # one bad batch never stops the run
         return [{'error': repr(e)[:300]}]
 
 
 def render_all(name: str, limit: int | None = None, workers: int = 12, seed: int = 0,
                batch: int = 8, chosen: str = 'scores', grand_staff_only: bool = False,
-               tenor: bool = False) -> pathlib.Path:
+               tenor: bool = False, quiet_tuplets: bool = False) -> pathlib.Path:
     """Render the chosen scores into DATA/<name>: the staff pictures and
     an index of what each prints, index.jsonl."""
     scores = [json.loads(line) for line in (DATA / f'{chosen}.jsonl').read_text().splitlines()]
@@ -536,7 +550,7 @@ def render_all(name: str, limit: int | None = None, workers: int = 12, seed: int
     bar = Progress(f'render-{name}', len(batches), 'batches', f'engraving {len(scores)} PDMX scores with MuseScore')
     staves = 0
     with open(out / 'index.jsonl', 'w') as index, ProcessPoolExecutor(workers) as pool:
-        jobs = [(b, seed * 1_000_003 + i, out, tenor) for i, b in enumerate(batches)]
+        jobs = [(b, seed * 1_000_003 + i, out, tenor, quiet_tuplets) for i, b in enumerate(batches)]
         for k, samples in enumerate(pool.map(_render_one, jobs), start=1):
             staves += sum('error' not in s for s in samples)
             bar.update(k, f'{staves} staves, {errors} failed batches')

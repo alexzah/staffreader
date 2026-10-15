@@ -39,6 +39,33 @@ import pathlib
 from . import canonical, cases, layout_suite, metrics, render, report, suite
 
 
+def _write_layout(image: pathlib.Path, page: int | None, json_path: pathlib.Path | None,
+                  picture: pathlib.Path | None):
+    """The page's layout as the reader found it, with each bar's box in
+    reading order (bar 1 is the first system's first bar), so a bar of
+    the reading can be cut from the straightened page beside it."""
+    import cv2
+    from . import layout
+    gray = layout_suite.gray_page(image, page)
+    lay = layout.read(gray)
+    level = layout.level(gray, lay.angle, lay.bend)
+    if picture:
+        cv2.imwrite(str(picture), level)
+    if json_path:
+        d = lay.to_dict()
+        bars = []
+        for k, system in enumerate(lay.systems):
+            staves = [lay.staves[i] for i in system.staves]
+            left = min(st.x0 for st in staves)
+            for right in system.barlines:
+                bars.append({'system': k, 'left': round(left, 1), 'right': round(right, 1),
+                             'top': round(staves[0].top, 1), 'bottom': round(staves[-1].bottom, 1)})
+                left = right
+        d['bars'] = bars
+        d['space'] = round(lay.space, 2)
+        json_path.write_text(json.dumps(d, indent=1))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest='command', required=True)
@@ -57,7 +84,7 @@ def main():
     c.add_argument('reading', type=pathlib.Path)
     c.add_argument('--bars', type=int, nargs=2)
     im = sub.add_parser('imslp')
-    im.add_argument('file', help="the file's number, such as 04755")
+    im.add_argument('file', nargs='?', help="the file's number, such as 04755; without one, every file on the work page")
     im.add_argument('--title', nargs='*', default=[], help='work pages to look on')
     im.add_argument('--search', help='a search for the work page, if the titles miss')
     sub.add_parser('progress')
@@ -75,10 +102,14 @@ def main():
     rd.add_argument('image', type=pathlib.Path, help='a PDF or a PNG')
     rd.add_argument('--page', type=int, help="the PDF's page, counted from 1")
     rd.add_argument('-o', '--out', type=pathlib.Path, help='where to write the MusicXML (default: beside the image)')
+    rd.add_argument('--layout', type=pathlib.Path,
+                    help="also write the page's staves, systems and bars as JSON, in the --picture's pixels")
+    rd.add_argument('--picture', type=pathlib.Path, help='also write the straightened page the layout was found on')
     sub.add_parser('fetch', help="download the ladder's answer keys into the cache")
     ts = sub.add_parser('testset', help='build the reserved test sets from the scans that never train')
     ts.add_argument('--model', type=pathlib.Path, help='the model that places systems; the default reader by default')
     ts.add_argument('--plan', action='store_true', help='only list the scans and their transcriptions')
+    ts.add_argument('--only', nargs='*', help='only these kinds of music, such as orchestra')
     ex = sub.add_parser('experiment', help='train and compare runs as a written spec says (ITERATING.md)')
     ex.add_argument('spec', type=pathlib.Path)
     args = parser.parse_args()
@@ -106,6 +137,8 @@ def main():
         render.CACHE.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=render.CACHE) as work:
             shutil.copy(ours.read(image, args.page if image.suffix.lower() == '.pdf' else None, pathlib.Path(work)), out)
+        if args.layout or args.picture:
+            _write_layout(image, args.page if image.suffix.lower() == '.pdf' else None, args.layout, args.picture)
         print(out)
         return
     if args.command == 'fetch':
@@ -120,7 +153,7 @@ def main():
                       f"  {len(p['rows'])} transcriptions")
             return
         from .baselines import staffreader as ours
-        print(testsets.build((args.model.expanduser() if args.model else ours.CHECKPOINT)))
+        print(testsets.build((args.model.expanduser() if args.model else ours.CHECKPOINT), args.only))
         return
 
     if args.command == 'experiment':
@@ -143,8 +176,16 @@ def main():
 
     if args.command == 'imslp':
         from . import imslp
-        found = imslp.find_file(args.file, args.title, args.search)
-        print(json.dumps(found.to_dict() if found else None, indent=1, ensure_ascii=False))
+        if args.file:
+            found = imslp.find_file(args.file, args.title, args.search)
+            print(json.dumps(found.to_dict() if found else None, indent=1, ensure_ascii=False))
+            return
+        # No file named: every file on the work page, to choose an edition from.
+        titles = args.title or (imslp.search(args.search, 3)[:1] if args.search else [])
+        for title in titles:
+            pg = imslp.page(title)
+            files = imslp.files_on(pg) if pg else []
+            print(json.dumps({'work': title, 'files': [f.to_dict() for f in files]}, indent=1, ensure_ascii=False))
         return
 
     if args.command == 'compare':
