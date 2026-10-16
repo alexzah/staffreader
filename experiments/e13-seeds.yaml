@@ -1,0 +1,71 @@
+# E13: how much two fine-tunes differ by chance, and E12 again with the decoder
+# that no longer lets a mark follow itself (three staves looped on 'ped').
+# E12's four models are reused as they are (models/e13-seeds-<run> link to
+# them); control2 and pairs2 repeat the control and pairs runs with another
+# seed (batch order and every random choice). If control2 differs from control
+# by as much as the E12 runs differ from each other, E12's differences are
+# chance, not the data.
+name: e13-seeds
+base: models/v2-mix/last.pt
+steps: 3500
+lr: 0.0001
+runs:
+  control:
+    data: &id001
+    - r2-single-quarter
+    - r2-grand
+    - real3-v2*8
+    - lieder-d-v2*8
+    - orch-v2*8
+    tasks: true
+  format3:
+    data:
+    - r2-single-quarter-v3
+    - r2-grand-v3
+    - real3-v2-v3*8
+    - lieder-d-v2-v3*8
+    - orch-v2*8
+    tasks: true
+  pairs:
+    data: &id002
+    - r2-single-quarter-v3
+    - r2-grand-v3
+    - real3-v2-v3*8
+    - lieder-d-v2-v3*8
+    - orch-c-v2-v3*8
+    - pdmx-pilot-v3*8
+    - pdmx-a2-v3*8
+    - pdmx-a3-v3*8
+    - pdmx-recover-v3*8
+    - pdmx-b-v3*8
+    - pdmx-b-ens-v3*8
+    - r3-vocal-pilot-v3
+    tasks: true
+    target: &id003
+      music: piano
+  between:
+    data:
+    - r2-single-quarter-v3
+    - r2-grand-v3b
+    - real3-v2-v3*8
+    - lieder-d-v2-v3b*8
+    - orch-c-v2-v3*8
+    - pdmx-pilot-v3b*8
+    - pdmx-a2-v3b*8
+    - pdmx-a3-v3b*8
+    - pdmx-recover-v3b*8
+    - pdmx-b-v3b*8
+    - pdmx-b-ens-v3b*8
+    - r3-vocal-pilot-v3
+    tasks: true
+    target:
+      music: piano
+  control2:
+    data: *id001
+    tasks: true
+    seed: 1
+  pairs2:
+    data: *id002
+    tasks: true
+    target: *id003
+    seed: 1

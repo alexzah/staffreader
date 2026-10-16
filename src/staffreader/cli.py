@@ -101,6 +101,8 @@ def main():
     rd = sub.add_parser('read', help='read one page of a printed score into MusicXML')
     rd.add_argument('image', type=pathlib.Path, help='a PDF or a PNG')
     rd.add_argument('--page', type=int, help="the PDF's page, counted from 1")
+    rd.add_argument('--pages', help="a run of the PDF's pages, such as 12-15, read as one work: its parts named on "
+                                    "the first and matched on the rest by their labels")
     rd.add_argument('-o', '--out', type=pathlib.Path, help='where to write the MusicXML (default: beside the image)')
     rd.add_argument('--layout', type=pathlib.Path,
                     help="also write the page's staves, systems and bars as JSON, in the --picture's pixels")
@@ -131,12 +133,19 @@ def main():
         import tempfile
         from .baselines import staffreader as ours
         image = args.image.expanduser().resolve()
-        if image.suffix.lower() == '.pdf' and not args.page:
-            raise SystemExit('name the page to read with --page')
-        out = args.out or image.with_name(f"{image.stem}{f'-p{args.page}' if args.page else ''}.musicxml")
+        if image.suffix.lower() == '.pdf' and not (args.page or args.pages):
+            raise SystemExit('name the page to read with --page, or a run of pages with --pages')
+        if args.pages:
+            first, last = (int(x) for x in args.pages.split('-'))
+            pages = [(image, n) for n in range(first, last + 1)]
+            label = f'-p{first}-{last}'
+        else:
+            pages = [(image, args.page if image.suffix.lower() == '.pdf' else None)]
+            label = f'-p{args.page}' if args.page else ''
+        out = args.out or image.with_name(f'{image.stem}{label}.musicxml')
         render.CACHE.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=render.CACHE) as work:
-            shutil.copy(ours.read(image, args.page if image.suffix.lower() == '.pdf' else None, pathlib.Path(work)), out)
+            shutil.copy(ours.read_work(pages, pathlib.Path(work)), out)
         if args.layout or args.picture:
             _write_layout(image, args.page if image.suffix.lower() == '.pdf' else None, args.layout, args.picture)
         print(out)

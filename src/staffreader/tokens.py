@@ -52,7 +52,7 @@ def vocabulary() -> list[str]:
     words += ['task:notes', 'task:marks']  # what a reading is to hold: the notes alone, or the marks too
     # Version 3: a multi-bar rest, its count in digits after it; then the
     # third group of marks (marks.vocabulary_v3).
-    words += ['R:multi'] + [f'mr:{d}' for d in range(10)]
+    words += ['R:multi'] + [f'mr:{d}' for d in range(10)] + ['clef:TAB']
     words += marks.vocabulary_v3()
     return words
 
@@ -171,6 +171,7 @@ def from_part(part: ET.Element, staff: int = 1, top: bool = True) -> tuple[list[
     measures = part.findall('measure')
     bars, states = [], []
     rest_until = 0  # the first bar after a multi-bar rest
+    two = max([int(x.text) for x in part.iter('staves') if (x.text or '').isdigit()] or [1]) == 2
     for i, m in enumerate(measures):
         opening: dict[str, str] = {}
         start = None
@@ -226,7 +227,7 @@ def from_part(part: ET.Element, staff: int = 1, top: bool = True) -> tuple[list[
                 step = Fraction(int(float(el.findtext('duration', '0'))), divisions)
                 pos += step if el.tag == 'forward' else -step
             elif el.tag == 'direction':
-                if int(el.findtext('staff', '1')) == staff:
+                if int(el.findtext('staff', '1')) == staff or _between(el, staff, two):
                     toks = M.direction_tokens(el, top)
                     if toks:
                         directions.append((pos + Fraction(int(float(el.findtext('offset', '0'))), divisions), toks))
@@ -321,6 +322,24 @@ def from_part(part: ET.Element, staff: int = 1, top: bool = True) -> tuple[list[
                        'opening': [opening[k] for k in ('clef', 'key', 'time') if k in opening],
                        'readable': not unreadable and len(streams) <= 4})
     return bars, states
+
+
+BETWEEN = {'dynamics', 'wedge', 'words', 'dashes'}
+
+
+def _between(direction: ET.Element, staff: int, two: bool) -> bool:
+    """A dynamic, hairpin, word or dashed line printed between the two
+    staves of a part (below the upper staff, or above the lower one): it
+    shows in both staves' pictures, so both are labeled with it, and the
+    part's assembly writes it once (_dedupe_between). Written for the other
+    staff, it is labeled here too."""
+    if not two or direction.get('placement') not in ('above', 'below'):
+        return False
+    kinds = {g.tag for dt in direction.findall('direction-type') for g in dt}
+    if not kinds or not kinds <= BETWEEN:
+        return False
+    own = int(direction.findtext('staff', '1'))
+    return (own, direction.get('placement'), staff) in ((1, 'below', 2), (2, 'above', 1))
 
 
 def _ordered(stem: list[str]) -> list[str]:
@@ -518,6 +537,75 @@ def length(note: dict) -> Fraction:
     return total
 
 
+def _onsets(notes: list[dict]) -> list[Fraction]:
+    """Where each note of a bar starts, voice by voice."""
+    out, at = [], {}
+    for n in notes:
+        v = n.get('voice', 0)
+        here = at.get(v, Fraction(0))
+        if n.get('chord'):
+            here = out[-1] if out else here
+        out.append(here)
+        if not n.get('chord') and not n.get('grace') and not n.get('measure'):
+            at[v] = here + length(n)
+    return out
+
+
+def _remove_run(toks: list[str], run: list[str]) -> list[str] | None:
+    """[toks] without the first occurrence of [run] as a contiguous run, or
+    None where it holds no such run."""
+    for k in range(len(toks) - len(run) + 1):
+        if toks[k:k + len(run)] == run:
+            return toks[:k] + toks[k + len(run):]
+    return None
+
+
+def _dedupe_between(upper: list[Bar], lower: list[Bar]) -> None:
+    """A mark printed between a part's two staves is read on both staves,
+    each copy before that staff's first note at or after where the mark
+    stands. The upper staff's copy is kept and the lower one dropped: most
+    such marks are the upper staff's, printed below it (84% in Lieder
+    transcriptions), and keeping the upper copy brings back more of them in
+    the right place than keeping the earlier one (round trip on 21 piano
+    scores: dynamics 0.994 against 0.976, hairpins 0.995 against 0.988).
+    Each staff's own marks stay."""
+    for a, b in zip(upper, lower):
+        ua = sorted(((t, n) for n, t in zip(a.notes, _onsets(a.notes)) if not n.get('space')), key=lambda x: x[0])
+        lb = sorted(((t, n) for n, t in zip(b.notes, _onsets(b.notes)) if not n.get('space')), key=lambda x: x[0])
+
+        def first(notes, at):
+            return next((t for t, _ in notes if t >= at), None)
+        for tu, nu in ua:
+            for run in _runs(nu.get('before') or []):
+                for tl, nl in lb:
+                    if nl.get('before') and (tl == first(lb, tu) or tu == first(ua, tl)) \
+                            and (left := _remove_run(nl['before'], run)) is not None:
+                        nl['before'] = left
+                        break
+                else:
+                    if b.after and (left := _remove_run(b.after, run)) is not None:
+                        b.after = left
+        for run in _runs(a.after):
+            if b.after and (left := _remove_run(b.after, run)) is not None:
+                b.after = left
+
+
+def _runs(toks: list[str]) -> list[list[str]]:
+    """The marks in a run of direction tokens, each with its text."""
+    from . import marks as M
+    out, k = [], 0
+    while k < len(toks):
+        t = toks[k]
+        if t in M.ALL_OPENERS:
+            j = toks.index(')', k) if ')' in toks[k:] else len(toks) - 1
+            out.append(toks[k:j + 1])
+            k = j + 1
+        else:
+            out.append([t])
+            k += 1
+    return out
+
+
 def _expand_multi(bars: list[Bar]) -> list[Bar]:
     """A staff's bars with each multi-bar rest written out as the bars it
     stands for: the first keeps its count (Bar.multi), so it prints as one."""
@@ -561,6 +649,9 @@ def to_musicxml(staves_of_parts: list[list[list[Bar]]], names: list[str] | None 
     # Endings are printed above the system's top staff and belong to every part.
     top = staves_of_parts[0][0] if staves_of_parts and staves_of_parts[0] else []
     staves_of_parts = [[_expand_multi(bars) for bars in staves] for staves in staves_of_parts]
+    for staves in staves_of_parts:
+        if len(staves) == 2:
+            _dedupe_between(staves[0], staves[1])
     top = staves_of_parts[0][0] if staves_of_parts and staves_of_parts[0] else []
     for p, staves in enumerate(staves_of_parts):
         part = ET.SubElement(root, 'part', id=f'P{p + 1}')
@@ -686,6 +777,8 @@ def _meter(staves: list[list[Bar]]) -> str | None:
 def _clef_parts(clef: str) -> tuple[str, str, str | None]:
     if clef == 'percussion':
         return 'percussion', '', None
+    if clef == 'TAB':
+        return 'TAB', '5', None
     octave = None
     if clef.endswith(('+8', '-8')):
         octave = '1' if clef.endswith('+8') else '-1'

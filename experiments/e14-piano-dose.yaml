@@ -1,0 +1,46 @@
+# E14: do the real piano pairs lift real piano at a heavier dose? In E12/E13
+# the PDMX pairs were about 8% of batches, and the pairs runs did not beat
+# the control on real piano (-0.9 averaged over two seeds, chance 1.7). Here
+# they weigh four times as much (*32), trained with two seeds, against E13's
+# two control runs (models linked, not trained again). Judged on the real
+# piano test set (845 bars) by the mean of each pair of runs.
+name: e14-piano-dose
+base: models/v2-mix/last.pt
+steps: 3500
+lr: 0.0001
+runs:
+  control:
+    data: &id001
+    - r2-single-quarter
+    - r2-grand
+    - real3-v2*8
+    - lieder-d-v2*8
+    - orch-v2*8
+    tasks: true
+  control2:
+    data: *id001
+    tasks: true
+    seed: 1
+  heavy:
+    data: &id002
+    - r2-single-quarter-v3
+    - r2-grand-v3
+    - real3-v2-v3*8
+    - lieder-d-v2-v3*8
+    - orch-c-v2-v3*8
+    - pdmx-pilot-v3*32
+    - pdmx-a2-v3*32
+    - pdmx-a3-v3*32
+    - pdmx-recover-v3*32
+    - pdmx-b-v3*32
+    - pdmx-b-ens-v3*32
+    - r3-vocal-pilot-v3
+    tasks: true
+    target:
+      music: piano
+  heavy2:
+    data: *id002
+    tasks: true
+    target:
+      music: piano
+    seed: 1

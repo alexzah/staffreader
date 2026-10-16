@@ -20,6 +20,7 @@ import json
 import os
 import pathlib
 import random
+import re
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -196,7 +197,13 @@ def select(workers: int = 16, limit: int | None = None, name: str = 'scores') ->
 
 # --------------------------------------------------------------- rendering
 
-def _clean(xml: bytes, tenor: bool = False, quiet_tuplets: bool = False) -> str:
+VOICE_CLEFS = [(re.compile(r'sopran|canto|discant|cantus|superius', re.I), '1'),
+               (re.compile(r'\balt\b|alto|contralto|altus', re.I), '3'),
+               (re.compile(r'tenor', re.I), '4')]
+
+
+def _clean(xml: bytes, tenor: bool = False, quiet_tuplets: bool = False, vocal: bool = False,
+           names: random.Random | None = None) -> str:
     """The score as MuseScore should engrave it for training: every bar
     drawn, nothing folded into a multi-bar rest, and laid out by
     MuseScore's own style rather than the upload's. With [tenor], each
@@ -205,7 +212,12 @@ def _clean(xml: bytes, tenor: bool = False, quiet_tuplets: bool = False) -> str:
     trombone parts are, since few uploads use it. With [quiet_tuplets],
     tuplets are drawn without their number or bracket, as many printed
     editions draw triplets once the first group has shown them; the bars
-    still say they are triplets, so the labels do too."""
+    still say they are triplets, so the labels do too. With [vocal], each
+    one-staff voice part in a treble clef is written in the C clef older
+    editions print it in: soprano, alto or tenor clef. With [names] (a
+    random source), each part an older edition would name gets such a
+    name, full and short (instruments.historical), and the score counts
+    them in its 'renamed' attribute."""
     root = _root(xml)
     if quiet_tuplets:
         for t in root.iter('tuplet'):
@@ -234,12 +246,50 @@ def _clean(xml: bytes, tenor: bool = False, quiet_tuplets: bool = False) -> str:
                 c.find('sign').text = 'C'
                 c.find('line').text = '4'
             part.set('tenor', 'yes')
+    if vocal:
+        names = {sp.get('id'): sp.findtext('part-name') or '' for sp in root.iter('score-part')}
+        for part in root.findall('part'):
+            if any(a.findtext('staves') not in (None, '1') for a in part.iter('attributes')):
+                continue
+            line = next((n for rx, n in VOICE_CLEFS if rx.search(names.get(part.get('id'), ''))), None)
+            clefs = list(part.iter('clef'))
+            if line is None or not clefs or any(c.findtext('sign') != 'G' for c in clefs):
+                continue
+            for c in clefs:  # the pitches are written as they sound, whatever the clef
+                c.find('sign').text = 'C'
+                c.find('line').text = line
+                if (o := c.find('clef-octave-change')) is not None:
+                    c.remove(o)
+            part.set('vocal', 'yes')
+    if names is not None:
+        from . import instruments
+        renamed = 0
+        for sp in root.iter('score-part'):
+            got = instruments.historical(sp.findtext('part-name') or sp.findtext('part-abbreviation'), names)
+            if got is None:
+                continue
+            for tag in ('part-name-display', 'part-abbreviation-display'):
+                for el in sp.findall(tag):
+                    sp.remove(el)
+            for tag, text in zip(('part-name', 'part-abbreviation'), got):
+                el = sp.find(tag)
+                if el is None:
+                    el = ET.SubElement(sp, tag)
+                el.text = text
+                el.attrib.pop('print-object', None)
+            renamed += 1
+        root.set('renamed', str(renamed))
     return ET.tostring(root, encoding='unicode')
 
 
-def style(rng: random.Random) -> tuple[str, str]:
+NAME_FACES = ['Liberation Serif', 'DejaVu Serif', 'Libre Baskerville', 'IBM Plex Serif', 'Edwin']
+
+
+def style(rng: random.Random, names: bool = False, multirest: bool = False) -> tuple[str, str]:
     """A MuseScore style picked at random: a music font, a staff size, a
-    page shape and spacing. Returns the font and the style file's text."""
+    page shape and spacing. Returns the font and the style file's text.
+    With [names], staff labels are set in a serif face chosen at random,
+    bold as often as not, as older editions set them."""
     font = rng.choices(list(FONTS), weights=list(FONTS.values()))[0]
     width = rng.uniform(7.5, 9.0)
     margin = rng.uniform(0.4, 0.8)
@@ -251,8 +301,15 @@ def style(rng: random.Random) -> tuple[str, str]:
         'barWidth': rng.uniform(0.15, 0.22), 'minNoteDistance': rng.uniform(0.3, 0.6),
         'measureSpacing': rng.uniform(1.0, 1.5), 'staffDistance': rng.uniform(5.0, 8.0),
         'minSystemDistance': rng.uniform(7.0, 10.0), 'showMeasureNumber': rng.choice([0, 1, 1]),
-        'createMultiMeasureRests': 0, 'hideEmptyStaves': 0,
+        'createMultiMeasureRests': int(multirest), 'hideEmptyStaves': 0,
     }
+    if multirest:
+        values['minEmptyMeasures'] = rng.choice([2, 2, 3])
+    if names:
+        face, bold = rng.choice(NAME_FACES), rng.choice([0, 1])
+        values.update({'longInstrumentFontFace': face, 'shortInstrumentFontFace': face,
+                       'longInstrumentFontStyle': bold, 'shortInstrumentFontStyle': bold,
+                       'longInstrumentFontSize': rng.uniform(9.0, 12.0), 'shortInstrumentFontSize': rng.uniform(9.0, 12.0)})
     body = ''.join(f'    <{k}>{round(v, 3) if isinstance(v, float) else v}</{k}>\n' for k, v in values.items())
     return font, f'<?xml version="1.0" encoding="UTF-8"?>\n<museScore version="4.70">\n  <Style>\n{body}  </Style>\n</museScore>\n'
 
@@ -337,6 +394,35 @@ def _systems(root: ET.Element) -> list[list[int]]:
             elif p.get('new-system') == 'yes':
                 pages[-1].append(i)
     return pages
+
+
+def _rest_share(part: ET.Element) -> float:
+    """The share of a part's measures that hold no note: how much a
+    player's part of it would fold into multi-bar rests."""
+    measures = part.findall('measure')
+    empty = sum(1 for m in measures if not any(n.find('rest') is None for n in m.findall('note')))
+    return empty / max(1, len(measures))
+
+
+def parts_alone(xml: str, rng: random.Random, most: int = 2) -> list[str]:
+    """Up to [most] of a score's one-staff parts, each as a score of its
+    own, as a player's part is printed: those with many empty measures,
+    which fold into multi-bar rests."""
+    root = ET.fromstring(xml)
+    plist = root.find('part-list')
+    chosen = [p for p in root.findall('part') if _rest_share(p) >= 0.25
+              and not any(a.findtext('staves') not in (None, '1') for a in p.iter('attributes'))]
+    out = []
+    for part in rng.sample(chosen, min(most, len(chosen))):
+        one = ET.Element('score-partwise', root.attrib)
+        for child in root:
+            if child.tag not in ('part-list', 'part'):
+                one.append(child)
+        pl = ET.SubElement(one, 'part-list')
+        pl.extend([sp for sp in plist.iter('score-part') if sp.get('id') == part.get('id')])
+        one.append(part)
+        out.append(ET.tostring(one, encoding='unicode'))
+    return out
 
 
 def cut(name: str, svgs: list[pathlib.Path], exported: pathlib.Path, font: str, rng: random.Random,
@@ -462,13 +548,14 @@ def _text_lines(name, page, s_i, first, last, parts, names, staves, boxes, base,
 
 
 def render(scores: list[dict], seed: int, out: pathlib.Path, tenor: bool = False,
-           quiet_tuplets: bool = False) -> list[dict]:
+           quiet_tuplets: bool = False, vocal: bool = False, names: bool = False,
+           player_parts: bool = False) -> list[dict]:
     """Engrave a batch of chosen scores in one MuseScore style and cut out
     their staves. MuseScore starts once for the batch; a batch it cannot
     finish is engraved again score by score. With [tenor], parts are
     written in tenor clef where they suit it, and only their staves kept."""
     rng = random.Random(seed)
-    font, mss = style(rng)
+    font, mss = style(rng, names, multirest=player_parts)
     if quiet_tuplets:  # and for tuplets the file leaves to the style
         mss = mss.replace('  </Style>', '    <tupletNumberType>2</tupletNumberType>\n'
                                          '    <tupletBracketType>2</tupletBracketType>\n  </Style>')
@@ -483,14 +570,21 @@ def render(scores: list[dict], seed: int, out: pathlib.Path, tenor: bool = False
                 raw = canonical.load(PDMX / score['mxl'])
                 if quiet_tuplets and b'<time-modification' not in raw:
                     continue  # only scores with tuplets
-                xml = _clean(raw, tenor, quiet_tuplets)
-                if tenor and ' tenor="yes"' not in xml:
+                xml = _clean(raw, tenor, quiet_tuplets, vocal, rng if names else None)
+                if tenor and ' tenor="yes"' not in xml or vocal and ' vocal="yes"' not in xml:
                     continue
-                (tmp / f'{name}.musicxml').write_text(xml)
+                if names and int(re.search(r' renamed="(\d+)"', xml).group(1)) < 3:
+                    continue  # an ensemble score with at least three named parts
+                # A player's part on its own, its empty bars folded into multi-bar rests.
+                pieces = [(f'{name}p{k}', x) for k, x in enumerate(parts_alone(xml, rng))] if player_parts \
+                    else [(name, xml)]
+                for piece, x in pieces:
+                    (tmp / f'{piece}.musicxml').write_text(x)
             except Exception:
                 continue
-            jobs.append({'in': str(tmp / f'{name}.musicxml'),
-                         'out': [str(tmp / f'{name}-out.svg'), str(tmp / f'{name}-out.musicxml')]})
+            for piece, _ in pieces:
+                jobs.append({'in': str(tmp / f'{piece}.musicxml'),
+                             'out': [str(tmp / f'{piece}-out.svg'), str(tmp / f'{piece}-out.musicxml')]})
         env = render_mod.mscore_env()
 
         def run(batch):
@@ -515,25 +609,27 @@ def render(scores: list[dict], seed: int, out: pathlib.Path, tenor: bool = False
                 continue
             try:
                 samples += [{**s, 'mxl': next(sc['mxl'] for sc in scores
-                                               if hashlib.sha1(sc['mxl'].encode()).hexdigest()[:12] == name)}
+                                               if hashlib.sha1(sc["mxl"].encode()).hexdigest()[:12] == name[:12])}
                             for s in cut(name, svgs, exported, font, rng, out)
-                            if not tenor or s['tokens'][:1] == ['clef:C4']]
+                            if (not tenor or s['tokens'][:1] == ['clef:C4'])
+                            and (not vocal or s['tokens'][:1] in (['clef:C1'], ['clef:C3'], ['clef:C4']))]
             except Exception:
                 continue
     return samples
 
 
 def _render_one(args):
-    scores, seed, out, tenor, quiet = args
+    scores, seed, out, tenor, quiet, vocal, names, player_parts = args
     try:
-        return render(scores, seed, out, tenor, quiet)
+        return render(scores, seed, out, tenor, quiet, vocal, names, player_parts)
     except Exception as e:  # one bad batch never stops the run
         return [{'error': repr(e)[:300]}]
 
 
 def render_all(name: str, limit: int | None = None, workers: int = 12, seed: int = 0,
                batch: int = 8, chosen: str = 'scores', grand_staff_only: bool = False,
-               tenor: bool = False, quiet_tuplets: bool = False) -> pathlib.Path:
+               tenor: bool = False, quiet_tuplets: bool = False, vocal: bool = False,
+               names: bool = False, player_parts: bool = False) -> pathlib.Path:
     """Render the chosen scores into DATA/<name>: the staff pictures and
     an index of what each prints, index.jsonl."""
     scores = [json.loads(line) for line in (DATA / f'{chosen}.jsonl').read_text().splitlines()]
@@ -550,7 +646,8 @@ def render_all(name: str, limit: int | None = None, workers: int = 12, seed: int
     bar = Progress(f'render-{name}', len(batches), 'batches', f'engraving {len(scores)} PDMX scores with MuseScore')
     staves = 0
     with open(out / 'index.jsonl', 'w') as index, ProcessPoolExecutor(workers) as pool:
-        jobs = [(b, seed * 1_000_003 + i, out, tenor, quiet_tuplets) for i, b in enumerate(batches)]
+        jobs = [(b, seed * 1_000_003 + i, out, tenor, quiet_tuplets, vocal, names, player_parts)
+                for i, b in enumerate(batches)]
         for k, samples in enumerate(pool.map(_render_one, jobs), start=1):
             staves += sum('error' not in s for s in samples)
             bar.update(k, f'{staves} staves, {errors} failed batches')

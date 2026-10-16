@@ -24,7 +24,7 @@ import cv2
 
 FAMILY_OF_SET = [('real', 'quartet'), ('lieder', 'voice and piano'), ('orch', 'orchestra'), ('r2-grand', 'piano'),
                  ('m4-a', 'piano'), ('r2-tenor', 'tenor clef'), ('m5-tenor', 'tenor clef'), ('r2-single', 'one staff'),
-                 ('m3-a', 'one staff'), ('test-', 'reserved')]
+                 ('m3-a', 'one staff'), ('r3-vocal', 'vocal clefs'), ('pdmx-', 'PDMX pairs'), ('test-', 'reserved')]
 SLICES = ['music', 'source', 'set', 'clef', 'key', 'time', 'density', 'voices', 'chords', 'tuplets', 'grace',
           'marks']
 

@@ -28,12 +28,12 @@ from .. import model as M
 from ..render import CACHE
 
 
-# The model that reads unless STAFFREADER_MODEL names another: the v2 run
-# of 2026-10-14, which reads every mark of the inventory as a second task.
-# Against m4b-mix on every test set it was better beyond noise in 39 of
-# 70 slices and worse in one (treble clef with an 8 below), and it halved
-# the edits a staff needs (eval-v2-mix).
-DEFAULT = CACHE / 'models/v2-mix/last.pt'
+# The model that reads unless STAFFREADER_MODEL names another: the v3 run
+# of 2026-10-16, which reads token format 3 and learned from scans paired
+# with PDMX transcriptions. Against v2-mix on every test set it was better
+# beyond noise in 24 of 72 slices and worse in none (real solo piano 80.5%
+# to 83.6% of bars), and real ladder pages read as before (eval-v3-mix).
+DEFAULT = CACHE / 'models/v3-mix/last.pt'
 
 
 def _checkpoint() -> pathlib.Path | None:
@@ -57,7 +57,7 @@ del _STATE
 # key per system; as many bars as the layout counts; an overfull bar read
 # again as triplets (Reader.fits) within TRIPLET_MARGIN.
 TRIPLET_MARGIN = float(settings.get('triplet_margin'))
-DECODER = 'bars2-parts-key2-count' + ('-tasks' if TASKS else '') + (f'-triplets{TRIPLET_MARGIN:g}' if TRIPLET_MARGIN >= 0 else '')
+DECODER = 'bars2-parts-key2-count' + ('-tasks' if TASKS else '') + (f'-triplets{TRIPLET_MARGIN:g}' if TRIPLET_MARGIN >= 0 else '') + '-norepeat'
 # Nats a triplet reading of an overfull bar may fall short of the reading it
 # replaces. The model cannot see a "3" that is not printed, so it always
 # finds the triplets less likely; E11 (experiments/e11_refit.py) chose 12 on
@@ -153,34 +153,59 @@ def read_staves(crops: list, batch: int = 12, limits: list | None = None,
     return out
 
 
-def read(image: pathlib.Path, page: int | None, work: pathlib.Path) -> pathlib.Path:
-    work.mkdir(parents=True, exist_ok=True)
+class Work:
+    """What reading a work carries from page to page: its parts' bars
+    (part -> staff -> bars), the instruments its labels named, each staff's
+    time signature and key, the parts the last system showed, and how many
+    bars have been read."""
+
+    def __init__(self):
+        self.parts: dict[int, dict[int, list[tokens.Bar]]] = {}
+        self.named: list | None = None
+        self.times: dict[tuple[int, int], object] = {}
+        self.keys: dict[tuple[int, int], str] = {}
+        self.shown: set[int] = set()
+        self.bars = 0
+        self.where: list[tuple] = []
+        self.seqs: list[list[str]] = []
+        self.unplaced = 1000  # an unlabelled staff no part fits is a part of its own
+
+
+def _rests(n: int) -> list[tokens.Bar]:
+    return [tokens.Bar(notes=[{'rest': True, 'measure': True, 'space': False, 'pitch': None, 'type': 'whole',
+                               'dots': 0, 'tuplet': None, 'tie': False, 'voice': 0}]) for _ in range(n)]
+
+
+def read_page(image: pathlib.Path, page: int | None, w: Work, number: int = 0) -> None:
+    """Read one page into the work [w]: each staff's bars onto its part, a
+    part the page's systems leave out resting through them."""
     gray = layout_suite.gray_page(image, page)
     lay = layout.read(gray)
     level = layout.level(gray, lay.angle, lay.bend)
     if not lay.systems:
         raise RuntimeError('no staves found on the page')
-    # System by system, so each part's time signature, printed only where
-    # it starts or changes, bounds its bars in every later system.
-    parts: dict[int, dict[int, list[tokens.Bar]]] = {}  # part -> staff -> its bars
-    # With a text reader, each staff's part comes from its label, so a
-    # system that leaves out resting staves keeps every staff on its part.
-    plan, named = _plan(level, lay)
-    times: dict[tuple[int, int], object] = {}
-    keys: dict[tuple[int, int], str] = {}  # each staff's key in the system before
-    where, seqs = [], []
+    # With a text reader, each staff's part comes from its label, matched
+    # against the parts the work's earlier pages named, so a system that
+    # leaves out resting staves keeps every staff on its part.
+    plan, named = _plan(level, lay, w.named, w.shown)
+    if named:
+        w.named = named
     for s_i, system in enumerate(lay.systems):
         groups = system.parts or [[st] for st in system.staves]
         ids = plan[s_i] if plan else list(range(len(groups)))
-        ids = [k if k is not None else 1000 + g for g, k in enumerate(ids)]  # an unplaced staff a part of its own
-        places = [(ids[g], n) for g, group in enumerate(groups) for n in range(len(group))]
+        fixed = []
+        for g, k in enumerate(ids):
+            if k is None:
+                k, w.unplaced = w.unplaced, w.unplaced + 1
+            fixed.append(k)
+        places = [(fixed[g], n) for g, group in enumerate(groups) for n in range(len(group))]
         staves = [st for group in groups for st in group]
         crops = [staffcrop.crop(level, lay.staves[st].lines, lay.staves[st].x0, lay.staves[st].x1) for st in staves]
-        limits = [times.get(place) for place in places]
+        limits = [w.times.get(place) for place in places]
         counts = [system.measures] * len(crops)
         task = 'notes' if TASKS else None
         got = agree_on_key(crops, read_staves(crops, limits=limits, counts=counts, task=task), limits,
-                           [keys.get(place) for place in places], counts=counts, task=task)
+                           [w.keys.get(place) for place in places], counts=counts, task=task)
         if TRIPLET_MARGIN >= 0:
             # A page that continues a work prints no time signature: its bars
             # are taken to fill the length most of them fill (tokens._meter).
@@ -205,30 +230,57 @@ def read(image: pathlib.Path, page: int | None, work: pathlib.Path) -> pathlib.P
             for b in bars:
                 if b.time:
                     beats, unit, _ = tokens._time_value(b.time)
-                    times[place] = Fraction(4 * beats, unit)
-            keys[place] = next((t for t in seq if t.startswith('key:')), keys.get(place))
-            parts.setdefault(place[0], {}).setdefault(place[1], []).extend(bars)
-            where.append((s_i, *place))
-            seqs.append(seq)
-        if plan:  # a part this system leaves out rests through it
-            present = {k for k, _ in places}
-            for k in {k for k in parts} - present:
-                for n in parts[k]:
-                    parts[k][n] += [tokens.Bar(notes=[{'rest': True, 'measure': True, 'space': False, 'pitch': None,
-                                                       'type': 'whole', 'dots': 0, 'tuplet': None, 'tie': False,
-                                                       'voice': 0}]) for _ in range(system.measures)]
-    (work / 'tokens.txt').write_text('\n'.join(f'{w}: {" ".join(s)}' for w, s in zip(where, seqs)))
-    out = work / 'reading.musicxml'
-    order = sorted(parts)
+                    w.times[place] = Fraction(4 * beats, unit)
+            w.keys[place] = next((t for t in seq if t.startswith('key:')), w.keys.get(place))
+            if place[0] not in w.parts:
+                w.parts[place[0]] = {}
+            if place[1] not in w.parts[place[0]]:  # a part or staff first seen here rests through what came before
+                w.parts[place[0]][place[1]] = _rests(w.bars)
+            w.parts[place[0]][place[1]].extend(bars)
+            w.where.append((number, s_i, *place))
+            w.seqs.append(seq)
+        w.bars += system.measures
+        # A part this system leaves out rests through it; so does a staff of
+        # its read with fewer bars than the system holds.
+        for k in w.parts:
+            for n in w.parts[k]:
+                short = w.bars - len(w.parts[k][n])
+                if short > 0:
+                    w.parts[k][n] += _rests(short)
+        w.shown = {k for k, _ in places}
+
+
+def write_work(w: Work, out: pathlib.Path) -> pathlib.Path:
+    """The work read so far as MusicXML."""
+    order = sorted(w.parts)
+    named = w.named
     for k in order:
         if named and k < len(named) and named[k].name == 'tenor':
-            tenor_clef([parts[k][n] for n in sorted(parts[k])])
-    out.write_bytes(tokens.to_musicxml([[parts[k][n] for n in sorted(parts[k])] for k in order],
+            tenor_clef([w.parts[k][n] for n in sorted(w.parts[k])])
+    out.write_bytes(tokens.to_musicxml([[w.parts[k][n] for n in sorted(w.parts[k])] for k in order],
                                        names=[named[k].key if named and k < len(named) else f'Part {i + 1}'
                                               for i, k in enumerate(order)],
                                        transpose=[named[k].transpose if named and k < len(named) else 0
                                                   for k in order]))
     return out
+
+
+def read_work(pages: list[tuple[pathlib.Path, int | None]], work: pathlib.Path) -> pathlib.Path:
+    """The pages of one work, read in order into one score: the parts its
+    first page names, matched on every later page by their labels, each
+    part's time signature and key carried over, and a part a page leaves
+    out resting there."""
+    work.mkdir(parents=True, exist_ok=True)
+    w = Work()
+    for number, (image, page) in enumerate(pages):
+        read_page(image, page, w, number)
+    (work / 'tokens.txt').write_text('\n'.join(f'{x}: {" ".join(s)}' for x, s in zip(w.where, w.seqs)))
+    return write_work(w, work / 'reading.musicxml')
+
+
+def read(image: pathlib.Path, page: int | None, work: pathlib.Path) -> pathlib.Path:
+    """One page on its own."""
+    return read_work([(image, page)], work)
 
 
 def tenor_clef(staves: list[list[tokens.Bar]]) -> None:
@@ -251,10 +303,13 @@ def tenor_clef(staves: list[list[tokens.Bar]]) -> None:
                         n['pitch'] = n['pitch'][0] + str(int(n['pitch'][1:]) - 1)
 
 
-def _plan(level, lay) -> tuple[list[list[int | None]] | None, list | None]:
+def _plan(level, lay, known: list | None = None,
+          shown: set[int] | None = None) -> tuple[list[list[int | None]] | None, list | None]:
     """Each system's part for each of its staff groups, from the labels
     the text reader reads at the system's left; or (None, None) without
-    a text reader, or where no label is read at all. A label is read line
+    a text reader, or where no label is read at all. The work's parts are
+    those [known] from its pages before, if any ([shown]: those the last
+    system showed), else those this page's first system names. A label is read line
     by line ('Cor.' over '(C)'), and one printed between two staff groups
     names both, numbered in order ('Vl.' for the first and second
     violins). A braced pair whose label names no keyboard or harp is two
@@ -313,7 +368,7 @@ def _plan(level, lay) -> tuple[list[list[int | None]] | None, list | None]:
         systems.append(split_names)
     if not any(instruments.instrument(l) for names in systems for l in names):
         return None, None
-    parts, plan = instruments.assign(systems)
+    parts, plan = instruments.assign(systems, known, shown)
     return plan, parts
 
 
@@ -329,7 +384,8 @@ def _margin_labels(level, lay, system, groups) -> list[tuple[list[int], list]]:
     space = first.space
     left = min(lay.staves[st].x0 for st in system.staves)
     top, bottom = max(0, int(first.top - space)), int(last.bottom + space)
-    x0, x1 = max(0, int(left - 16 * space)), int(left - 0.3 * space)
+    # A first system names its staves in full ("Clarinetti in B."), reaching some 20 spaces left.
+    x0, x1 = max(0, int(left - 30 * space)), int(left - 0.3 * space)
     if x1 - x0 < 2 * space:
         return []
     strip = level[top:bottom, x0:x1].copy()

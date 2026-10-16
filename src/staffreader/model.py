@@ -175,6 +175,7 @@ class Reader(nn.Module):
         done = torch.zeros(n, dtype=torch.bool, device=images.device)
         bars = [Budget(bar_limits[i] if bar_limits else None) for i in range(n)]
         closed = [0] * n
+        run = [0] * n  # marks written since the last note, rest or barline
         for step in range(max_len + 1):
             logits = self.logits(memory, pad, seq)[:, -1].float()
             for i, b in enumerate(bars):
@@ -187,6 +188,18 @@ class Reader(nn.Module):
                     else:
                         logits[i] = float('-inf')
                         logits[i, EOS] = 0.0
+            # A mark never follows itself ('ped ped ...'), and no more than
+            # MARK_RUN marks stand between two notes: a reading could
+            # otherwise loop on one mark, or on two in turn ('ped hp> ped
+            # hp< ...'), as E12's did on a few staves.
+            for i in range(n):
+                if done[i]:
+                    continue
+                last = int(seq[i, -1])
+                if last in NO_REPEAT:
+                    logits[i, last] = float('-inf')
+                if run[i] >= MARK_RUN:
+                    logits[i, MARKS_INDEX.to(logits.device)] = float('-inf')
             nxt = logits.argmax(-1)
             if prefixes:
                 for i, prefix in enumerate(prefixes):
@@ -198,6 +211,7 @@ class Reader(nn.Module):
                 if not done[i]:
                     bars[i].add(VOCAB[t])
                     closed[i] += VOCAB[t] in tokens.BARLINES
+                    run[i] = 0 if t in STARTS_SET or VOCAB[t] in tokens.BARLINES else run[i] + (t in NO_REPEAT)
             done |= nxt == EOS
             if done.all():
                 break
@@ -272,7 +286,21 @@ class Reader(nn.Module):
 
 
 BAR_CAP = 64  # notes in one bar; no music we read has more
+
+
+def _no_repeat() -> set[int]:
+    from . import marks
+    toks = marks.STEM + marks.NOTE + marks.DIRECTIONS + marks.STEM_V3 + marks.NOTE_V3 + list(marks.OPENERS_V3)
+    # A dot may follow a dot (a double-dotted note), and a word's letters or
+    # a count's digits repeat.
+    return {INDEX[t] for t in toks if t in INDEX and t not in ('.', ')') and not t.startswith(('c:', 'mr:'))}
+
+
+NO_REPEAT = _no_repeat()
+MARKS_INDEX = torch.tensor(sorted(NO_REPEAT), dtype=torch.long)
+MARK_RUN = 6  # marks between two notes; a printed score rarely stacks more
 STARTS = [INDEX[t] for t in VOCAB if t.startswith(('N:', 'acc:')) or t in ('R', 'R:measure', 'R:multi', 'gr', 'S')]
+STARTS_SET = set(STARTS)
 
 
 class Budget:

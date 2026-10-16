@@ -20,6 +20,6 @@ r = measure.measure(ckpt, ['m3-a', 'm4-a', 'real2'])
 (CACHE / 'models/e6-lieder/measure.json').write_text(json.dumps(r, indent=1))
 # The ladder reads in its own process: hand it the memory this one cached.
 gc.collect(); torch.cuda.empty_cache()
-subprocess.run(['uv', 'run', 'omr', 'suite', '--reader', 'staffreader', '--out', str(CACHE / 'runs/ladder-e6-lieder')],
+subprocess.run(['uv', 'run', 'staffreader', 'suite', '--reader', 'staffreader', '--out', str(CACHE / 'runs/ladder-e6-lieder')],
                env={**os.environ, 'STAFFREADER_MODEL': str(ckpt)}, check=False, capture_output=True)
 bar.finish(f"real bars {r['real']['bars_exact']:.1%}, rendered bars {r['rendered']['bars_exact']:.1%}")

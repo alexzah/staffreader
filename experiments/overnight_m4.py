@@ -23,7 +23,7 @@ for name in ('m4-mix', 'm4-real'):
     ckpt = CACHE / 'models' / name / 'last.pt'
     results[name] = measure.measure(ckpt, ['m3-a', 'm4-a', 'real2'])
     (CACHE / 'models' / name / 'measure.json').write_text(json.dumps(results[name], indent=1))
-    subprocess.run(['uv', 'run', 'omr', 'suite', '--reader', 'staffreader', '--out', str(CACHE / 'runs' / f'ladder-{name}')],
+    subprocess.run(['uv', 'run', 'staffreader', 'suite', '--reader', 'staffreader', '--out', str(CACHE / 'runs' / f'ladder-{name}')],
                    env={**os.environ, 'STAFFREADER_MODEL': str(ckpt)}, check=False, capture_output=True)
 bar.finish('; '.join(f"{n}: real bars {r['real']['bars_exact']:.1%}, rendered bars {r['rendered']['bars_exact']:.1%}"
                      for n, r in results.items()))

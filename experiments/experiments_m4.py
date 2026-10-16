@@ -19,7 +19,7 @@ results = {}
 for k, (name, ckpt) in enumerate((('night-real', BASE), ('e5-grand-staff', CACHE / 'models/e5-grand-staff/last.pt')), start=1):
     bar.update(k, f'measuring {name}')
     results[name] = measure.measure(ckpt, HELD)
-    subprocess.run(['uv', 'run', 'omr', 'suite', '--reader', 'staffreader', '--out', str(CACHE / 'runs' / f'ladder-m4-{name}')],
+    subprocess.run(['uv', 'run', 'staffreader', 'suite', '--reader', 'staffreader', '--out', str(CACHE / 'runs' / f'ladder-m4-{name}')],
                    env={**os.environ, 'STAFFREADER_MODEL': str(ckpt)}, check=False, capture_output=True)
 (CACHE / 'runs' / 'experiments-m4.json').write_text(json.dumps(results, indent=1))
 bar.finish('; '.join(f"{n}: real bars {r['real']['bars_exact']:.1%}, rendered bars {r['rendered']['bars_exact']:.1%}"

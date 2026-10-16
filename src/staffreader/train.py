@@ -39,10 +39,14 @@ def _boring(seq: list[str]) -> bool:
 class Sample:
     """One staff to learn from, kept small: hundreds of thousands of them
     sit in memory, and in every data worker's."""
-    __slots__ = ('path', 'ids', 'width', 'real')
+    __slots__ = ('path', 'ids', 'width', 'real', 'notes_only')
 
-    def __init__(self, path: str, ids: np.ndarray, width: int, real: bool):
+    def __init__(self, path: str, ids: np.ndarray, width: int, real: bool, notes_only: bool = False):
         self.path, self.ids, self.width, self.real = path, ids, width, real
+        # A real scan paired with a transcription that is not OpenScore's (a
+        # PDMX user's) teaches its notes only: such transcriptions add marks
+        # the print does not show, such as metronome marks for rubato.
+        self.notes_only = notes_only
 
 
 def reserved() -> set[str]:
@@ -124,13 +128,14 @@ def samples(dirs: list[pathlib.Path], held_out: bool | None, repeats: list[int] 
             if held_out is False and _boring(s['tokens']) and rng.random() > 0.1:
                 continue
             if not all(t in M.INDEX for t in s['tokens']):
-                continue  # tablature, a note below the piano, a freak time
-            if 'clef:percussion' in s['tokens']:
-                continue  # drums: no pitches, and no part of our scores
+                continue  # a note below the piano, a freak time
+            if 'clef:TAB' in s['tokens']:
+                continue  # six-line staves: layout and cropping take five-line ones (a crop shows its neighbours)
             if held_out is False and _is_reserved(s.get('pdf'), ladder):  # a test scan never trains
                 continue
-            sample = Sample(str(d / s['image']), np.array(M.encode(s['tokens']), np.int16), widths[k],
-                            s.get('font') == 'scan')
+            real = s.get('font') == 'scan'
+            sample = Sample(str(d / s['image']), np.array(M.encode(s['tokens']), np.int16), widths[k], real,
+                            notes_only=real and not str(s.get('mxl', '')).startswith('openscore:'))
             out += [sample] * (boost_count(s['tokens'], boost, rng) if held_out is False else 1)
         seen += len(lines[d])
         if not held_out:
@@ -206,7 +211,8 @@ class Staves(Dataset):
             img = M.window(stored)
         ids = s.ids.tolist()
         if self.tasks:
-            ids = with_task(ids, self.task or ('notes' if np.random.random() < 0.5 else 'marks'))
+            task = 'notes' if s.notes_only else self.task or ('notes' if np.random.random() < 0.5 else 'marks')
+            ids = with_task(ids, task)
         return img, ids
 
 
@@ -316,12 +322,16 @@ def evaluate(net: M.Reader, items: list[dict], device, limit: int = 400, read: i
 
 def train(name: str, data: list[str], hours: float = 3.0, lr: float = 5e-4, budget: int = 40000,
           workers: int = 10, resume: str | None = None, steps: int | None = None,
-          plain: bool = False, tasks: bool = False, boost: dict | None = None) -> pathlib.Path:
+          plain: bool = False, tasks: bool = False, boost: dict | None = None, seed: int = 0) -> pathlib.Path:
     """Train a reader for [steps] steps, or for [hours], and save it to
     CACHE/models/<name>. Runs to be compared take a number of steps, so a
     busy machine slows them without giving one less training than
-    another."""
+    another. [seed] changes the order batches are drawn in and the start of
+    every random choice, so a run repeated with another seed shows how
+    much two runs differ by chance alone."""
     device = 'cuda'
+    torch.manual_seed(seed)
+    np.random.seed(seed)
     out = CACHE / 'models' / name
     out.mkdir(parents=True, exist_ok=True)
     names = [d.split('*')[0] for d in data]
@@ -344,7 +354,7 @@ def train(name: str, data: list[str], hours: float = 3.0, lr: float = 5e-4, budg
         net.load_state_dict(M.grown(torch.load(resume, map_location=device, weights_only=True)['model'], net))
     print(f'{sum(p.numel() for p in net.parameters()) / 1e6:.1f}M parameters', flush=True)
     opt = torch.optim.AdamW(net.parameters(), lr=lr, weight_decay=0.05, betas=(0.9, 0.98))
-    sampler = ByWidth(train_items, budget)
+    sampler = ByWidth(train_items, budget, seed=seed)
     loader = DataLoader(Staves(train_items, augment=True, tasks=tasks), batch_sampler=sampler, num_workers=workers,
                         collate_fn=collate, persistent_workers=True, prefetch_factor=4)
     start, step, warmup = time.time(), 0, 2000

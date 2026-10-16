@@ -8,3 +8,14 @@ volumes:
   # sonatinas Op. 55 (Schirmer), two publishers and two levels.
   - 12773
   - 10162
+# Transcriptions in PDMX (paths inside the pdmx setting) made from reserved
+# volumes, by IMSLP file number, and the kind of music each tests.
+pdmx:
+  12773:
+    music: piano
+    mxl: [mxl/12/28/QmUk3ahyVbCMrrQhCuvXBW7bGCHkZd3LAdM7HKkVeAVE6P.mxl,
+          mxl/10/9/QmSapKg585rCeS4WNPEgxDrQS31qVXeg5pGvNKx9KcTCPb.mxl]
+  10162:
+    music: piano
+    mxl: [mxl/17/17/QmZebw69299pYc7Fqdd8xyUXETMoHumsgE1RNeNzdZgZrR.mxl,
+          mxl/6/51/QmNWC9Q7Ap4p4GRMS91vKPN1rPSjPkCf8QDj28jSY4An31.mxl]

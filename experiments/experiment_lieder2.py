@@ -29,7 +29,7 @@ for k, (name, data) in enumerate(RUNS.items()):
     (CACHE / 'models' / name / 'measure.json').write_text(json.dumps(r, indent=1))
     # The ladder reads in its own process: hand it the memory this one cached.
     gc.collect(); torch.cuda.empty_cache()
-    subprocess.run(['uv', 'run', 'omr', 'suite', '--reader', 'staffreader', '--out', str(CACHE / 'runs' / f'ladder-{name}')],
+    subprocess.run(['uv', 'run', 'staffreader', 'suite', '--reader', 'staffreader', '--out', str(CACHE / 'runs' / f'ladder-{name}')],
                    env={**os.environ, 'STAFFREADER_MODEL': str(ckpt)}, check=False, capture_output=True)
     results[name] = r
 bar.finish('; '.join(f"{n}: real {r['real']['bars_exact']:.1%}, Lieder {r['lieder']['bars_exact']:.1%} of bars exact"

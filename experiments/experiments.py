@@ -30,7 +30,7 @@ for name in [r[0] for r in RUNS]:
     results[name] = measure.measure(ckpt, HELD)
     (CACHE / 'models' / name / 'measure.json').write_text(json.dumps(results[name], indent=1))
     env = {**os.environ, 'STAFFREADER_MODEL': str(ckpt)}
-    subprocess.run(['uv', 'run', 'omr', 'suite', '--reader', 'staffreader', '--out', str(CACHE / 'runs' / f'ladder-{name}')],
+    subprocess.run(['uv', 'run', 'staffreader', 'suite', '--reader', 'staffreader', '--out', str(CACHE / 'runs' / f'ladder-{name}')],
                    env=env, check=False, capture_output=True)
 (CACHE / 'runs' / 'experiments.json').write_text(json.dumps(results, indent=1))
 bar.finish('real bars exact: ' + ', '.join(f"{n} {r['real']['bars_exact']:.1%}" for n, r in results.items()))

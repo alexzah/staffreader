@@ -22,11 +22,12 @@ import numpy as np
 from .render import CACHE
 from . import settings
 
-# The text reader: text-a fine-tuned with real lyric lines from the Lieder
-# that train, a sixth of its batches (E9b, 2026-10-15). Real printed lyrics
-# went from 21% of characters wrong to 4.3%; rendered lines lost 0.06 points,
-# all in spacing and hyphens, none in letters.
-TEXT_MODEL = settings.path('text_model') or CACHE / 'models' / 'e9b-real' / 'last.pt'
+# The text reader: e9b-real trained further on staff labels engraved as older
+# editions print them and real labels read from paired orchestral pages
+# (text-v3, 2026-10-16). Against e9b-real, real lyric lines read exactly
+# went from 22% to 30% and characters wrong from 4.3% to 3.2%; rendered
+# lines 91.7% to 92.8% exact.
+TEXT_MODEL = settings.path('text_model') or CACHE / 'models' / 'text-v3' / 'last.pt'
 _NET = None
 
 

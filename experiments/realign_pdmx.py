@@ -6,8 +6,11 @@ transcription says it was made from; this pairs every such scan on disk
 with its transcriptions, leaving out reserved volumes (reserved.yaml) and
 the test ladder's scans.
 
-  uv run python experiments/realign_pdmx.py <out name> <curated.json> [IMSLP file id ...]
-With file ids, only those scans: a pilot."""
+  uv run python experiments/realign_pdmx.py <out name> <curated.json> [--follow] [--by-staff] [IMSLP file id ...]
+With file ids, only those scans: a pilot. --follow places the systems of a
+scan holding one work by following the music (realign._follow), for dense
+writing the model reads too badly to place by exact bars; --by-staff pairs
+ensemble scores staff by staff, as the orchestral scans are."""
 
 import json
 import pathlib
@@ -20,7 +23,12 @@ PDMX = settings.path('pdmx')
 SCANS = settings.path('scans')
 
 curated = json.load(open(sys.argv[2]))
-only = set(sys.argv[3:])
+args = sys.argv[3:]
+workers = int(args[args.index('--workers') + 1]) if '--workers' in args else 8
+if '--workers' in args:
+    del args[args.index('--workers'):args.index('--workers') + 2]
+flags = {a for a in args if a.startswith('--')}
+only = {a for a in args if not a.startswith('--')}
 keep = train.reserved()
 rows = []
 for kind, files in curated.items():
@@ -35,4 +43,5 @@ for kind, files in curated.items():
             rows.append({'id': pathlib.Path(s['mxl']).stem, 'path': s['title'], 'imslp': pdf.name.split('-')[0][5:],
                          'mxl': str(PDMX / s['mxl'].lstrip('./')), 'kind': kind})
 print(len(rows), 'transcriptions of', len({r['imslp'] for r in rows}), 'scans', flush=True)
-realign.pair_all(rows, sys.argv[1], ours.CHECKPOINT)
+realign.pair_all(rows, sys.argv[1], ours.CHECKPOINT, workers=workers, follow='--follow' in flags,
+                 by_staff='--by-staff' in flags)

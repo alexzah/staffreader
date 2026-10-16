@@ -52,7 +52,17 @@ NAMES = [
     ('violoncello', 'cello'), ('violoncelli', 'cello'), ('cello', 'cello'), ('vcl', 'cello'), ('vc', 'cello'),
     ('vlc', 'cello'),
     ('contrabasso', 'bass'), ('contrabassi', 'bass'), ('kontrabass', 'bass'), ('kontrabasse', 'bass'),
-    ('contrebasse', 'bass'), ('cb', 'bass'), ('kb', 'bass'), ('k b', 'bass'), ('basso', 'bass'), ('bassi', 'bass'),
+    ('contrebasse', 'bass'), ('cb', 'bass'), ('kb', 'bass'), ('k b', 'bass'), ('c b', 'bass'), ('basso', 'bass'), ('bassi', 'bass'),
+    ('obs', 'oboe'), ('cls', 'clarinet'), ('clarinette basse', 'bass clarinet'), ('bass clarinet', 'bass clarinet'),
+    ('va', 'viola'), ('vas', 'viola'), ('db', 'bass'), ('d b', 'bass'), ('dbs', 'bass'), ('bn', 'bassoon'),
+    ('bns', 'bassoon'), ('vns', 'violin'), ('hns', 'horn'), ('tpts', 'trumpet'), ('tbns', 'trombone'),
+    ('bcl', 'bass clarinet'), ('b cl', 'bass clarinet'), ('hrp', 'harp'), ('vcs', 'cello'),
+    ('contrebasson', 'contrabassoon'), ('flutes', 'flute'), ('oboes', 'oboe'), ('clarinets', 'clarinet'), ('bassoons', 'bassoon'), ('horns', 'horn'),
+    ('violons', 'violin'), ('bssn', 'bassoon'), ('hrn', 'horn'), ('htb', 'oboe'), ('flti', 'flute'), ('vcelli', 'cello'),
+    ('cfag', 'contrabassoon'), ('btb', 'tuba'), ('tb', 'tuba'), ('hfe', 'harp'), ('cni', 'horn'), ('fagi', 'bassoon'),
+    ('tromp', 'trumpet'), ('trbni', 'trombone'), ('trbn', 'trombone'), ('c ingl', 'english horn'),
+    ('engl hr', 'english horn'), ('kl fl', 'piccolo'), ('fl picc', 'piccolo'), ('petite flute', 'piccolo'),
+    ('grosse flote', 'flute'), ('hoboe', 'oboe'), ('cor anglais', 'english horn'), ('englisch horn', 'english horn'),
     ('soprano', 'soprano'), ('sopran', 'soprano'), ('tenore', 'tenor'), ('tenor', 'tenor'),
     ('pianoforte', 'piano'), ('piano', 'piano'), ('klavier', 'piano'), ('pfte', 'piano'),
     ('organo', 'organ'), ('orgel', 'organ'), ('organ', 'organ'),
@@ -126,15 +136,18 @@ def instrument(label: str | None) -> Instrument | None:
     return Instrument(name, number, transpose)
 
 
-def assign(systems: list[list[str | None]]) -> tuple[list[Instrument], list[list[int | None]]]:
+def assign(systems: list[list[str | None]], parts: list[Instrument] | None = None,
+           before: set[int] | None = None) -> tuple[list[Instrument], list[list[int | None]]]:
     """The parts of a score and, for each system, the part of each staff,
     from the labels of each system's staves (None where none was read).
-    The first system's labels name the parts; a later system's labelled
-    staves are matched by instrument in order, and an unlabelled staff
-    takes the place between its labelled neighbours, or its place in the
-    first system where the counts agree."""
-    parts: list[Instrument] = []
+    The first system's labels name the parts, unless [parts] already does
+    (the pages of the work read before, [before] the parts the last system
+    showed); a later system's labelled staves are matched by instrument in
+    order, and an unlabelled staff takes the place between its labelled
+    neighbours, or its place in the first system where the counts agree."""
+    parts = list(parts or [])
     out: list[list[int | None]] = []
+    last = set(before or ())
     for labels in systems:
         read = [instrument(l) for l in labels]
         if not parts:
@@ -145,7 +158,7 @@ def assign(systems: list[list[str | None]]) -> tuple[list[Instrument], list[list
         if len(labels) == len(parts) and all(r is None for r in read):
             out.append(list(range(len(parts))))
             continue
-        before = {j for j in out[-1] if j is not None}
+        before = {j for j in out[-1] if j is not None} if out else last
         out.append(_align(read, parts, before))
     return parts, out
 
@@ -187,3 +200,51 @@ def _align(read: list[Instrument | None], parts: list[Instrument], before: set[i
         else:
             i -= 1
     return pick
+
+
+# Names as older editions print them, for engraving training pages whose
+# staff labels look like a printed score's: each instrument's full names
+# (for the first system) and short ones (for the rest), in Italian, German,
+# French and English. Every one of them reads back as its instrument.
+HISTORICAL = {
+    'piccolo': (['Flauto piccolo', 'Piccolo', 'Kleine Flöte', 'Petite Flûte', 'Ottavino'], ['Picc.', 'Kl. Fl.', 'Fl. picc.']),
+    'flute': (['Flauto', 'Flauti', 'Flöte', 'Flöten', 'Grosse Flöte', 'Flûte', 'Flutes'], ['Fl.', 'Fl', 'Flti.', 'Fl. gr.']),
+    'oboe': (['Oboe', 'Oboi', 'Hoboe', 'Hautbois', 'Oboes'], ['Ob.', 'Ob', 'Hob.', 'Htb.', 'Obs.']),
+    'english horn': (['Corno inglese', 'Englisch Horn', 'Cor anglais'], ['C. ingl.', 'Engl. Hr.', 'Cor ingl.']),
+    'clarinet': (['Clarinetto', 'Clarinetti', 'Klarinette', 'Klarinetten', 'Clarinette', 'Clarinets'], ['Cl.', 'Clar.', 'Kl.', 'Klar.', 'Cl', 'Cls.']),
+    'bass clarinet': (['Clarinetto basso', 'Bassklarinette', 'Clarinette basse', 'Bass Clarinet'], ['B. Cl.', 'Bcl.', 'Bkl.']),
+    'bassoon': (['Fagotto', 'Fagotti', 'Fagott', 'Fagotte', 'Basson', 'Bassoons'], ['Fag.', 'Fg.', 'Fagi.', 'Bssn.', 'Bn.', 'Bsn.', 'Bns.']),
+    'contrabassoon': (['Contrafagotto', 'Kontrafagott', 'Contrebasson'], ['Cfag.', 'K. Fag.', 'C. Fag.']),
+    'horn': (['Corno', 'Corni', 'Horn', 'Hörner', 'Cor', 'Horns'], ['Cor.', 'Hr.', 'Cni.', 'Hrn.', 'Hn.', 'Hns.']),
+    'trumpet': (['Tromba', 'Trombe', 'Trompete', 'Trompeten', 'Trompette', 'Clarini', 'Trumpets'], ['Tr.', 'Trp.', 'Tromp.', 'Tpt.', 'Tpts.']),
+    'trombone': (['Trombone', 'Tromboni', 'Posaune', 'Posaunen', 'Trombones'], ['Trbni.', 'Pos.', 'Trb.', 'Trbn.', 'Tbn.', 'Tbns.']),
+    'tuba': (['Tuba', 'Basstuba'], ['Tb.', 'Btb.']),
+    'timpani': (['Timpani', 'Pauken', 'Timbales'], ['Timp.', 'Pk.', 'Timb.']),
+    'harp': (['Arpa', 'Harfe', 'Harpe', 'Harp'], ['Hfe.', 'Arpa', 'Hp.', 'Hrp.']),
+    'violin': (['Violino', 'Violini', 'Violine', 'Violinen', 'Violon', 'Violons', 'Violins'], ['Vl.', 'Viol.', 'Vni.', 'Vl', 'Vn.', 'Vns.']),
+    'viola': (['Viola', 'Viole', 'Bratsche', 'Bratschen', 'Violas'], ['Vla.', 'Br.', 'Vle.', 'Vla', 'Va.', 'Vas.']),
+    'cello': (['Violoncello', 'Violoncelli', 'Violoncelle', 'Cello', 'Cellos'], ['Vc.', 'Vcl.', 'Vcelli.', 'Vc', 'Vcs.']),
+    'bass': (['Contrabasso', 'Contrabassi', 'Kontrabass', 'Contrebasse', 'Basso', 'Double Bass'], ['Cb.', 'Kb.', 'C.-B.', 'Bassi', 'Db.', 'D.B.', 'Dbs.']),
+}
+NUMBERS = [lambda n: f' {"I" * int(n)}' if n in '123' else f' {n}', lambda n: f' {n}', lambda n: f' {n}.']
+
+
+def historical(name: str | None, rng) -> tuple[str, str] | None:
+    """A full and a short label for a part, as an older edition might
+    print them, keeping its instrument, number and key; or None for an
+    instrument the table does not hold."""
+    inst = instrument(name)
+    if inst is None or inst.name not in HISTORICAL:
+        return None
+    fulls, shorts = HISTORICAL[inst.name]
+    full, short = rng.choice(fulls), rng.choice(shorts)
+    if inst.number and inst.number in '1234':
+        number = rng.choice(NUMBERS)(inst.number)
+        full, short = full + number, short + number
+    if inst.name in SOUNDING:  # its key, where it is not in C (a horn names even C)
+        key = next((k for k, v in SOUNDING[inst.name].items() if v == inst.transpose and len(k) <= 2), None)
+        if key and (inst.transpose != 0 or inst.name == 'horn'):
+            k = key.upper() if len(key) == 1 else key.capitalize()
+            full += rng.choice([f' in {k}', f' ({k})'])
+            short += rng.choice([f' ({k})', f' {k}'])
+    return full, short

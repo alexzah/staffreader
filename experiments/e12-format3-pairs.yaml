@@ -1,0 +1,31 @@
+# E12: the data bundle for the next run, in two steps against one control.
+# - format3: the same pictures labeled in token format 3 (chord symbols,
+#   figured bass, shape notes, the Schleifer; percussion staves now train
+#   in every run). Question: do the new marks cost notes, as weaving marks
+#   in once did (E8)?
+# - pairs: format 3 plus the real staves paired with PDMX transcriptions
+#   that name their scans (Bach's chorales and cello suites, Liszt's
+#   Beethoven symphonies, Bartok, Granados, Brahms, Faure, Holst and the
+#   recovered snapshot copies and the second batch of 115 scans; notes
+#   task only), the voice parts engraved
+#   in old C clefs, and the orchestral set re-paired with two-player labels.
+#   Question: does real piano lift the new solo-piano test set (150 staves,
+#   three editions) without costing the rest?
+name: e12-format3-pairs
+base: models/v2-mix/last.pt
+steps: 3500
+lr: 1.0e-4
+runs:
+  control: {data: [r2-single-quarter, r2-grand, real3-v2*8, lieder-d-v2*8, orch-v2*8], tasks: true}
+  format3: {data: [r2-single-quarter-v3, r2-grand-v3, real3-v2-v3*8, lieder-d-v2-v3*8, orch-v2*8], tasks: true}
+  pairs: {data: [r2-single-quarter-v3, r2-grand-v3, real3-v2-v3*8, lieder-d-v2-v3*8, orch-c-v2-v3*8,
+                 pdmx-pilot-v3*8, pdmx-a2-v3*8, pdmx-a3-v3*8, pdmx-recover-v3*8, pdmx-b-v3*8, pdmx-b-ens-v3*8,
+                 r3-vocal-pilot-v3],
+          tasks: true, target: {music: piano}}
+  # between: the pairs bundle with marks printed between a part's two staves
+  # labeled on both staves (tokens._between). Question: do real-page hairpins
+  # and dynamics rise (hairpins 0.30 on the ladder), with nothing else worse?
+  between: {data: [r2-single-quarter-v3, r2-grand-v3b, real3-v2-v3*8, lieder-d-v2-v3b*8, orch-c-v2-v3*8,
+                   pdmx-pilot-v3b*8, pdmx-a2-v3b*8, pdmx-a3-v3b*8, pdmx-recover-v3b*8, pdmx-b-v3b*8,
+                   pdmx-b-ens-v3b*8, r3-vocal-pilot-v3],
+            tasks: true, target: {music: piano}}

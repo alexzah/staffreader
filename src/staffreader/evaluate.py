@@ -63,8 +63,8 @@ def evaluate(checkpoint: pathlib.Path, name: str, against: pathlib.Path | None =
             torch.cuda.empty_cache()
     if ladder:
         bar.update(stage, 'the ladder')
-        subprocess.run(['uv', 'run', 'omr', 'suite', '--reader', 'staffreader', '--out', str(out / 'ladder')],
-                       env={**os.environ, 'STAFFREADER_MODEL': str(checkpoint)}, check=False, capture_output=True)
+        subprocess.run(['uv', 'run', 'staffreader', 'suite', '--reader', 'staffreader', '--out', str(out / 'ladder')],
+                       env={**os.environ, 'STAFFREADER_MODEL': str(checkpoint)}, check=True)
     from . import lyrics, text
     if lyrics.TEXT_MODEL.exists():  # the text reader: rendered lines held out, and real lyric lines
         found = {}
@@ -133,6 +133,9 @@ def experiment(spec_path: pathlib.Path) -> pathlib.Path:
     if 'control' not in runs:
         raise ValueError('an experiment compares its variants with a run named control')
     order = ['control'] + [r for r in runs if r != 'control']
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+    fresh = multiprocessing.get_context('spawn')
     bar = Progress(f'experiment {name}', 2 * len(order), 'stages', f'{name}: {", ".join(order)} for {steps} steps each')
     parent_of_children(f'experiment {name}')
     evals = {}
@@ -140,15 +143,18 @@ def experiment(spec_path: pathlib.Path) -> pathlib.Path:
         cfg = runs[run]
         model = f'{name}-{run}'
         bar.update(2 * k, f'training {run}')
+        # Each training and each evaluation runs in a process of its own, so
+        # what one stage held is given back before the next starts: E12's
+        # evaluation was killed at 16 GB in the process that had trained.
         if not (CACHE / 'models' / model / 'last.pt').exists():
-            train.train(model, cfg['data'], steps=steps, workers=4, budget=16000, lr=float(spec.get('lr', 1e-4)),
-                        resume=str(base), tasks=bool(cfg.get('tasks')), plain=bool(cfg.get('plain')),
-                        boost=cfg.get('boost'))
-        gc.collect()
-        torch.cuda.empty_cache()
+            with ProcessPoolExecutor(1, mp_context=fresh) as pool:
+                pool.submit(train.train, model, cfg['data'], steps=steps, workers=4, budget=16000,
+                            lr=float(spec.get('lr', 1e-4)), resume=str(base), tasks=bool(cfg.get('tasks')),
+                            plain=bool(cfg.get('plain')), boost=cfg.get('boost'), seed=int(cfg.get('seed', 0))).result()
         bar.update(2 * k + 1, f'evaluating {run}')
-        evals[run] = evaluate(CACHE / 'models' / model / 'last.pt', model,
-                              against=evals.get('control') if run != 'control' else None)
+        with ProcessPoolExecutor(1, mp_context=fresh) as pool:
+            evals[run] = pool.submit(evaluate, CACHE / 'models' / model / 'last.pt', model,
+                                     against=evals.get('control') if run != 'control' else None).result()
     found = {run: json.loads((evals[run] / 'diagnosis.json').read_text()) for run in order}
     summary = {run: d['overall'] for run, d in found.items()}
     gate = {run: _gate(found[run]['changes'], runs[run].get('target')) for run in order if run != 'control'}

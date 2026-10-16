@@ -22,6 +22,8 @@ import re
 import cv2
 import yaml
 
+from . import settings
+
 from . import cases, marks, realign, tokens, train
 from .data import _parts, _root
 from . import canonical
@@ -50,6 +52,8 @@ def plan() -> dict[str, dict]:
             for fid in ids.split():
                 orchestral.setdefault(fid.lstrip('0'), []).append(pathlib.Path(name).stem)
     songs = yaml.safe_load(LIEDER.read_text()) if LIEDER.exists() else {}
+    listed = pathlib.Path(__file__).resolve().parents[2] / 'reserved.yaml'
+    pdmx = (yaml.safe_load(listed.read_text()) or {}).get('pdmx') or {} if listed.exists() else {}
     for c in cases.all_cases():
         for t in c.tracks:
             if t.kind != 'scan' or t.pdf not in scans:
@@ -76,6 +80,11 @@ def plan() -> dict[str, dict]:
                     continue  # a ladder case's own answer key
                 entry['rows'].append({'id': str(sid), 'path': song['path'], 'collection': 'lieder'})
                 entry['music'] = 'voice'
+        made = pdmx.get(int(number)) if number.isdigit() else None
+        if made and settings.path('pdmx'):
+            for mxl in made.get('mxl', []):  # a PDMX user's transcription of this scan
+                entry['rows'].append({'id': pathlib.Path(mxl).stem, 'path': mxl, 'mxl': str(settings.path('pdmx') / mxl)})
+            entry['music'] = made.get('music', entry['music'])
     return out
 
 

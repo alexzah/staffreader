@@ -33,7 +33,7 @@ r['marks-rendered'] = measure.measure(ckpt, ['r2-single', 'r2-grand'], per_kind=
 r['marks-real'] = measure.measure(ckpt, ['real3-v2', 'orch-v2'], per_kind=600, task='marks')['real']
 (CACHE / 'models/v2-mix/measure.json').write_text(json.dumps(r, indent=1))
 gc.collect(); torch.cuda.empty_cache()
-subprocess.run(['uv', 'run', 'omr', 'suite', '--reader', 'staffreader', '--out', str(CACHE / 'runs/ladder-v2-mix')],
+subprocess.run(['uv', 'run', 'staffreader', 'suite', '--reader', 'staffreader', '--out', str(CACHE / 'runs/ladder-v2-mix')],
                env={**os.environ, 'STAFFREADER_MODEL': str(ckpt)}, check=False, capture_output=True)
 t = json.loads((CACHE / 'models/text-a/measure.json').read_text())
 bar.finish(f"staff: real {r['real']['bars_exact']:.1%}, rendered {r['rendered']['bars_exact']:.1%} of bars exact; "

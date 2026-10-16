@@ -17,6 +17,12 @@ from .real import LAYOUT_VERSION, SCANS, _found, _parts, _root, answer, pages
 
 MATCH = 0.75  # notes shared, bar by bar, for a system to be placed at all
 KEEP = 0.6  # the model's note F1 against the transcription, as the check asks
+# Following a single work system by system (_follow): a system is placed
+# where its reading agrees best near where the last one ended, by at least
+# FOLLOW_MARGIN over the next best start, and kept at FOLLOW_KEEP, since the
+# order of the music, not the reading alone, says where it stands.
+FOLLOW_KEEP = 0.8  # checked by eye: 0.41 a bar off and 0.60 three bars off (Liszt, Eroica pp. 50, 13)
+FOLLOW_MARGIN = 0.1
 SHORTEST = 2  # bars; a one-bar system says too little to place
 TIE = 0.02  # shares this close are as good as equal
 
@@ -203,6 +209,71 @@ def _fill(plan: list[list], songs: list) -> None:
             start += plan[i][1]
 
 
+def _shown(song, first: int, count: int, n: int) -> list | None:
+    """The song's staves a system of [n] staves prints for bars
+    first..first+count-1: all of them, or where the transcription has more
+    (a third piano staff for a few passages), those that hold notes there."""
+    if len(song.places) == n:
+        return list(song.places)
+    held = [p for p in song.places
+            if any(t.startswith('N:') for t in (song.tokens(p, first, first + count - 1) or []))]
+    return held if len(held) == n else None
+
+
+def _agree(song, staves: list[list[str]], first: int, count: int, places=None) -> float | None:
+    """The mean note F1 of a system's readings against its song's bars
+    first..first+count-1, staff by staff."""
+    from . import measure, metrics
+    f1 = []
+    for p, seq in zip(places or song.places, staves):
+        want = song.tokens(p, first, first + count - 1)
+        if want is None:
+            continue
+        try:
+            f1.append(metrics.compare(measure._score(want), measure._score(seq)).notes['core'].f1)
+        except Exception:
+            f1.append(0.0)
+    return sum(f1) / len(f1) if f1 else None
+
+
+def _follow(plan: list[list], seen: dict, song) -> int:
+    """Place the systems of a scan that holds one work by following the
+    music in page order: each unplaced system is tried at starts near where
+    the system before it ended, and placed at the start its reading agrees
+    with best, where that start is clearly better than the next. A system
+    the model reads too badly to place by its exact bars (dense piano
+    writing) is placed this way. Returns how many it placed."""
+    pointer, placed = 0, 0
+    for row in plan:
+        key, count, got = row
+        if got is not None:
+            pointer = got[2] + count
+            continue
+        staves = seen[key]
+        if count < 1 or pointer >= song.count:
+            continue
+        tried = []
+        for first in range(max(0, pointer - 2), min(song.count - count, pointer + 4) + 1):
+            places = _shown(song, first, count, len(staves))
+            f1 = _agree(song, staves, first, count, places) if places else None
+            if f1 is not None:
+                # Going on where the system before ended is itself evidence.
+                tried.append((f1 + (FOLLOW_MARGIN if first == pointer else 0.0), f1, first, places))
+        tried.sort(key=lambda t: -t[0])
+        if not tried:
+            pointer += count  # one work in order: the next system starts after this one
+            continue
+        score, best, first, places = tried[0]
+        runner = tried[1][0] if len(tried) > 1 else 0.0
+        if best >= FOLLOW_KEEP and score - runner >= FOLLOW_MARGIN:
+            row[2] = (best, 0, first, 'follow', places)
+            placed += 1
+            pointer = first + count
+        else:
+            pointer += count
+    return placed
+
+
 def _stem(song) -> str:
     """How a pair names its transcription: openscore:<stem> for OpenScore's,
     else the file's path."""
@@ -213,7 +284,7 @@ def _stem(song) -> str:
 
 
 def pair_volume(pdf: pathlib.Path, rows: list[dict], net, model_name: str, out: pathlib.Path,
-                name: str, keep: float = KEEP, fill: bool = False) -> tuple[list[dict], dict]:
+                name: str, keep: float = KEEP, fill: bool = False, follow: bool = False) -> tuple[list[dict], dict]:
     """Pair every system of [pdf] that can be placed in one of its songs
     ([rows], as pair_all takes them), and cut its staves. A system is kept
     where the model's reading agrees with the transcription at [keep];
@@ -247,6 +318,8 @@ def pair_volume(pdf: pathlib.Path, rows: list[dict], net, model_name: str, out: 
     if fill:
         report['out of order'] = _in_order(plan)
         _fill(plan, songs)
+    if follow and len(songs) == 1:
+        report['followed'] = _follow(plan, seen, songs[0])
     samples, grays = [], {}
     for key, count, got in plan:
         if got is None:
@@ -255,11 +328,13 @@ def pair_volume(pdf: pathlib.Path, rows: list[dict], net, model_name: str, out: 
         found = _found(pngs[j - 1])
         staves = seen[key]
         report['placed'] += 1
-        share, s, first = got
+        share, s, first = got[:3]
+        followed = len(got) > 3
         song, last = songs[s], first + count - 1
-        if len(song.places) != len(staves):
+        places = got[4] if followed else song.places
+        if len(places) != len(staves):
             continue
-        want = [song.tokens(p, first, last) for p in song.places]
+        want = [song.tokens(p, first, last) for p in places]
         f1 = []
         for w, seq in zip(want, staves):
             if w is None:
@@ -268,13 +343,13 @@ def pair_volume(pdf: pathlib.Path, rows: list[dict], net, model_name: str, out: 
                 f1.append(metrics.compare(measure._score(w), measure._score(seq)).notes['core'].f1)
             except Exception:
                 f1.append(0.0)
-        if not f1 or sum(f1) / len(f1) < keep:
+        if not f1 or sum(f1) / len(f1) < (FOLLOW_KEEP if followed else keep):
             continue
         report['kept'] += 1
         if j not in grays:
             grays = {j: layout.level(cv2.imread(str(pngs[j - 1]), cv2.IMREAD_GRAYSCALE), found['angle'], found.get('bend'))}
         system = found['systems'][k]
-        for n, ((part, staff_no), w) in enumerate(zip(song.places, want)):
+        for n, ((part, staff_no), w) in enumerate(zip(places, want)):
             if w is None:
                 continue
             st = found['staves'][system['staves'][n]]
@@ -284,19 +359,22 @@ def pair_volume(pdf: pathlib.Path, rows: list[dict], net, model_name: str, out: 
             samples.append({'image': str(file.relative_to(out)), 'mxl': _stem(song),
                             'part': part, 'staff': staff_no, 'first': first, 'last': last, 'font': 'scan',
                             'pdf': pdf.name, 'page': j, 'at': system['staves'][n], 'tokens': w,
-                            'match': round(share, 3)})
+                            'match': round(share, 3), **({'followed': True} if followed else {})})
     return samples, report
 
 
 def _pair_one(args):
-    pdf, rows, model_name, out, by_staff = args
+    pdf, rows, model_name, out, by_staff, follow = args
     try:
-        return (pair_staves if by_staff else pair_volume)(pdf, rows, None, model_name, out, pdf.stem.split('-')[0])
+        if by_staff:
+            return pair_staves(pdf, rows, None, model_name, out, pdf.stem.split('-')[0])
+        return pair_volume(pdf, rows, None, model_name, out, pdf.stem.split('-')[0], follow=follow)
     except Exception as e:
         return [], {'pdf': pdf.name, 'error': repr(e)[:300]}
 
 
-def pair_all(rows: list[dict], name: str, model: pathlib.Path, workers: int = 8, by_staff: bool = False) -> pathlib.Path:
+def pair_all(rows: list[dict], name: str, model: pathlib.Path, workers: int = 8, by_staff: bool = False,
+             follow: bool = False) -> pathlib.Path:
     """Pair every volume on disk with the songs it holds, by content: the
     model reads every volume first, then the systems are placed in
     parallel."""
@@ -308,7 +386,8 @@ def pair_all(rows: list[dict], name: str, model: pathlib.Path, workers: int = 8,
     out.mkdir(parents=True, exist_ok=True)
     by_pdf = collections.defaultdict(list)
     for r in rows:
-        pdf = next(SCANS.glob(f"IMSLP{r['imslp']}-*.pdf"), None)
+        # A row may name its scan outright: a candidate copy, not yet IMSLP's own file.
+        pdf = pathlib.Path(r['pdf']) if r.get('pdf') else next(SCANS.glob(f"IMSLP{r['imslp']}-*.pdf"), None)
         if pdf is not None:
             by_pdf[pdf].append(r)
     volumes = sorted(by_pdf, key=lambda p: p.name)
@@ -331,7 +410,7 @@ def pair_all(rows: list[dict], name: str, model: pathlib.Path, workers: int = 8,
     with open(out / 'index.jsonl', 'w') as index, ProcessPoolExecutor(workers) as pool:
         # The largest volumes first, so the last to finish are small.
         work = sorted(volumes, key=lambda p: -len(by_pdf[p]))
-        for v, (samples, report) in enumerate(pool.map(_pair_one, [(p, by_pdf[p], model_name, out, by_staff) for p in work]),
+        for v, (samples, report) in enumerate(pool.map(_pair_one, [(p, by_pdf[p], model_name, out, by_staff, follow) for p in work]),
                                               start=1):
             reports.append(report)
             for s in samples:

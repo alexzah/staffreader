@@ -21,3 +21,12 @@ def test_a_system_that_leaves_out_staves_keeps_each_on_its_part():
     assert len(parts) == 11
     assert plan[1] == [1, 3, 7, 8, 9, 10]
     assert plan[2] == [1, 3, 7, 8, 9, 10]  # an unread staff takes the part the system before showed there
+
+
+def test_every_historical_name_reads_back_as_its_instrument():
+    """The labels engraved for training are ones the reader maps to the
+    instrument they name, in every form the table holds."""
+    for name, (fulls, shorts) in I.HISTORICAL.items():
+        for label in fulls + shorts:
+            got = I.instrument(label)
+            assert got is not None and got.name == name, (label, got)
