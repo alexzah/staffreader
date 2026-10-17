@@ -4,7 +4,8 @@
       Read one page of a printed score (a PDF page, or a PNG) into
       MusicXML.
   staffreader fetch
-      Download the ladder's answer keys into the cache.
+      Download the trained models and the ladder's answer keys into the
+      cache.
   staffreader suite [--level N] [--case ID ...] [--reader staffreader audiveris oemer] [--fresh]
       Read every case's pictures with each reader, score the readings
       against the answer keys, and write the scoreboard.
@@ -25,7 +26,7 @@
       and list those to download by hand from IMSLP.
 
 Improving the reader (evaluate, diagnose, testset, experiment) is
-described in ITERATING.md.
+described in docs/improving.md.
 """
 
 from __future__ import annotations
@@ -92,7 +93,7 @@ def main():
                     help='draw it again every few seconds (10 by default) until interrupted')
     sc = sub.add_parser('scans')
     sc.add_argument('--limit', type=int)
-    ev = sub.add_parser('evaluate', help='measure a model on every test set and diagnose it (ITERATING.md)')
+    ev = sub.add_parser('evaluate', help='measure a model on every test set and diagnose it (docs/improving.md)')
     ev.add_argument('model', type=pathlib.Path, help='a checkpoint, such as models/v2-mix/last.pt in the cache folder')
     ev.add_argument('--name', help='the evaluation folder, runs/eval-<name>; the model folder by default')
     ev.add_argument('--against', type=pathlib.Path, help='an earlier evaluation folder to compare with')
@@ -112,14 +113,16 @@ def main():
     rd.add_argument('--names', type=pathlib.Path,
                     help="a JSON file naming each system's staves, top to bottom, as a list of lists (a list "
                          "of those for each page with --pages); used in place of the labels the reader reads")
-    sub.add_parser('fetch', help="download the ladder's answer keys into the cache")
+    fe = sub.add_parser('fetch', help='download the trained models and the answer keys into the cache')
+    fe.add_argument('--models', action='store_true', help='only the models')
+    fe.add_argument('--answers', action='store_true', help='only the answer keys')
     st = sub.add_parser('stale', help='whether an evaluation folder still measures what one made now would')
     st.add_argument('folder', type=pathlib.Path)
     ts = sub.add_parser('testset', help='build the reserved test sets from the scans that never train')
     ts.add_argument('--model', type=pathlib.Path, help='the model that places systems; the default reader by default')
     ts.add_argument('--plan', action='store_true', help='only list the scans and their transcriptions')
     ts.add_argument('--only', nargs='*', help='only these kinds of music, such as orchestra')
-    ex = sub.add_parser('experiment', help='train and compare runs as a written spec says (ITERATING.md)')
+    ex = sub.add_parser('experiment', help='train and compare runs as a written spec says (docs/improving.md)')
     ex.add_argument('spec', type=pathlib.Path)
     args = parser.parse_args()
 
@@ -161,8 +164,12 @@ def main():
         print(out)
         return
     if args.command == 'fetch':
-        from . import answers
-        print(f'answer keys in {answers.fetch()}')
+        from . import answers, models
+        if not args.answers:
+            for path in models.fetch():
+                print(f'model in {path}')
+        if not args.models:
+            print(f'answer keys in {answers.fetch()}')
         return
     if args.command == 'testset':
         from . import testsets

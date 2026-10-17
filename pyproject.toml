@@ -1,7 +1,7 @@
 [project]
 name = "staffreader"
 version = "0.1.0"
-description = "Optical music recognition trained only on free data, proved bar by bar against scores whose answer is known."
+description = "Optical music recognition for printed scores, trained only on free data."
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.13"

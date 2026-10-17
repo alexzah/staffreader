@@ -2,8 +2,9 @@
 It reads what the staff reader leaves to it: each verse of lyrics sung
 under a staff, and each instrument's name at a system's left. The same
 kind of network as the staff reader, smaller: a ConvNeXt-style encoder
-turns the line, HEIGHT pixels tall, into a grid two rows high, and a
-transformer decoder writes the characters one at a time.
+turns the line, HEIGHT pixels tall, into a row of places a quarter of its
+width across, and each place names a character or none, trained with CTC
+(TextReader).
 
 A verse is written as its syllables in order, a space between: a hyphen
 after one the next continues, an underscore after one held over the

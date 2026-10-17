@@ -9,7 +9,7 @@ Once the reader is functionally complete, it improves by one repeated loop. Each
 5. **Gate** it: the target improves beyond noise, and nothing else gets worse beyond noise.
 6. **Batch** the fixes that pass into a long run, which a maintainer approves, and measure again.
 
-The rest of this document says how each step works and which command does it. `README.md` says how the tool itself works.
+The rest of this document says how each step works and which command does it. [How it works](how-it-works.md) describes the reader itself.
 
 ```bash
 uv run staffreader testset                                   # build the reserved test sets (once, and when the reserved scans change)
@@ -67,7 +67,7 @@ Whoever proposes a fix, usually the agent, writes down:
 - **What it should change:** the slice expected to improve and by about how much, and the slices it could hurt.
 - **How it is tested:** the experiment that shows it (step 5), or a ladder page that shows it for a fix outside training.
 
-A fix must be general. A change made only to pass one ladder page is overfitting: it has to help the reserved volumes too. The plan's record of past turns (the E-series experiments) is history to learn from, not a menu.
+A fix must be general. A change made only to pass one ladder page is overfitting: it has to help the reserved volumes too. The record of past turns (the E-series experiments in `experiments/`) is history to learn from, not a menu.
 
 ## 5. Testing a fix
 
@@ -121,4 +121,4 @@ So whenever reading, scoring or test labels change during a run, bring the contr
 - Compare runs at a fixed number of steps, never a fixed time.
 - Never train on a test page. A ladder case's volume and every reserved volume are kept out of training by the code, not by care.
 - Look at the gallery before choosing a fix, and look at wrong bars by eye before trusting a metric. When the reading looks right and the label does not, fix the test set first and measure again.
-- Pilot every new kind of data or setting for minutes before a long run (CONVENTIONS.md, "A long job shows its progress and keeps its memory bounded").
+- Pilot every new kind of data or setting for minutes before a long run ([training.md](training.md), "Long jobs").

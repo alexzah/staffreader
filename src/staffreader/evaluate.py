@@ -1,4 +1,4 @@
-"""The loop's measuring and testing steps as commands (ITERATING.md, steps
+"""The loop's measuring and testing steps as commands (docs/improving.md, steps
 1-5).
 
 `evaluate` reads a model on every test set (the reserved sets whole,
@@ -45,7 +45,7 @@ def stale(folder: pathlib.Path) -> list[str]:
     now would: its ladder read with another decoder, test labels changed
     since its records were scored, or code that reads or scores changed
     since. A control must be current before a new model is compared with
-    it (ITERATING.md, "The control stays current")."""
+    it (docs/improving.md, "The control stays current")."""
     from .baselines import staffreader as ours
     out = []
     ladder = folder / 'ladder' / 'results.json'
@@ -221,7 +221,7 @@ def experiment(spec_path: pathlib.Path) -> pathlib.Path:
 
 
 def _gate(changes: list[dict], target: dict | None = None) -> dict:
-    """The gate (ITERATING.md, step 6): a variant passes where nothing got
+    """The gate (docs/improving.md, step 6): a variant passes where nothing got
     worse than the control beyond its interval, and the slice it aims at,
     if the spec names one ({slice: value}), got better beyond it."""
     worse = [f"{c['slice']}: {c['value']} ({100 * c['change']:+.1f})" for c in changes if c['verdict'] == 'worse']

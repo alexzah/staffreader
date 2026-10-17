@@ -1,4 +1,4 @@
-"""Where a reader is weak and where it is strong (ITERATING.md, steps 2
+"""Where a reader is weak and where it is strong (docs/improving.md, steps 2
 and 3).
 
 `measure` writes a record for each staff it reads: the staff's answer,

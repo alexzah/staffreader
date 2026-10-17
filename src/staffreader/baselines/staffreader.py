@@ -78,7 +78,7 @@ def net() -> M.Reader:
     global _NET
     if _NET is None:
         if CHECKPOINT is None:
-            raise RuntimeError(f'no model at {DEFAULT}: set STAFFREADER_MODEL')
+            raise RuntimeError(f'no model at {DEFAULT}: run `staffreader fetch`, or set STAFFREADER_MODEL')
         _NET = M.load(CHECKPOINT)  # on the device setting's device (model.DEVICE)
     return _NET
 

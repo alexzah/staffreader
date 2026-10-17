@@ -1,4 +1,4 @@
-"""The reserved test sets (ITERATING.md, step 1): every staff of the scans
+"""The reserved test sets (docs/improving.md, step 1): every staff of the scans
 the reader never trains on, paired with their transcriptions and kept
 however well any model reads them.
 
