@@ -22,12 +22,12 @@ import numpy as np
 from .render import CACHE
 from . import settings
 
-# The text reader: e9b-real trained further on staff labels engraved as older
-# editions print them and real labels read from paired orchestral pages
-# (text-v3, 2026-10-16). Against e9b-real, real lyric lines read exactly
-# went from 22% to 30% and characters wrong from 4.3% to 3.2%; rendered
-# lines 91.7% to 92.8% exact.
-TEXT_MODEL = settings.path('text_model') or CACHE / 'models' / 'text-v3' / 'last.pt'
+# The text reader: text-v3 trained further with directions in words cut
+# from engravings (text-v4, the long run of 2026-10-16, E16). Against
+# text-v3, real lyric lines read exactly went from 30% to 32% and
+# characters wrong from 3.2% to 3.0%; engraved lines level; held-out
+# directions in words read exactly 93%, from 60% (E16).
+TEXT_MODEL = settings.path('text_model') or CACHE / 'models' / 'text-v4' / 'last.pt'
 _NET = None
 
 

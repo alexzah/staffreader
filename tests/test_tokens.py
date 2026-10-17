@@ -225,6 +225,15 @@ def test_marks_join_the_notes_of_a_notes_only_reading():
     assert m.directions == ((0, 'dyn:p'),)
 
 
+def test_a_trill_line_ends_on_the_note_it_starts_on():
+    """A read trill line is closed, so engraving keeps it and the trills
+    after it, and it still counts as one mark."""
+    bars = tokens.parse('clef:F4 key:0 time:4/4 N:G2 d:half m:trill-mark m:wavy-line N:G2 d:half |'.split())
+    xml = tokens.to_musicxml([[bars]])
+    assert xml.count(b'wavy-line type="start"') == 1 and xml.count(b'wavy-line type="stop"') == 1
+    assert canonical.parse(xml).parts[0].measures[0].events[0].marks == ('trill-mark', 'wavy-line')
+
+
 def test_a_tenor_part_in_a_plain_treble_clef_is_written_an_octave_lower():
     from staffreader.baselines import staffreader as ours
     bars = tokens.parse('clef:G2 key:0 time:4/4 N:A4 d:half N:C5 d:half | N:G4 d:whole |'.split())

@@ -87,7 +87,9 @@ def main():
     im.add_argument('file', nargs='?', help="the file's number, such as 04755; without one, every file on the work page")
     im.add_argument('--title', nargs='*', default=[], help='work pages to look on')
     im.add_argument('--search', help='a search for the work page, if the titles miss')
-    sub.add_parser('progress')
+    pr = sub.add_parser('progress', help='how far every long job has got')
+    pr.add_argument('--watch', type=float, nargs='?', const=10, metavar='SECONDS',
+                    help='draw it again every few seconds (10 by default) until interrupted')
     sc = sub.add_parser('scans')
     sc.add_argument('--limit', type=int)
     ev = sub.add_parser('evaluate', help='measure a model on every test set and diagnose it (ITERATING.md)')
@@ -107,6 +109,9 @@ def main():
     rd.add_argument('--layout', type=pathlib.Path,
                     help="also write the page's staves, systems and bars as JSON, in the --picture's pixels")
     rd.add_argument('--picture', type=pathlib.Path, help='also write the straightened page the layout was found on')
+    rd.add_argument('--names', type=pathlib.Path,
+                    help="a JSON file naming each system's staves, top to bottom, as a list of lists (a list "
+                         "of those for each page with --pages); used in place of the labels the reader reads")
     sub.add_parser('fetch', help="download the ladder's answer keys into the cache")
     st = sub.add_parser('stale', help='whether an evaluation folder still measures what one made now would')
     st.add_argument('folder', type=pathlib.Path)
@@ -147,7 +152,10 @@ def main():
         out = args.out or image.with_name(f'{image.stem}{label}.musicxml')
         render.CACHE.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=render.CACHE) as work:
-            shutil.copy(ours.read_work(pages, pathlib.Path(work)), out)
+            names = json.loads(args.names.read_text()) if args.names else None
+            if names is not None and not args.pages:
+                names = [names]
+            shutil.copy(ours.read_work(pages, pathlib.Path(work), names), out)
         if args.layout or args.picture:
             _write_layout(image, args.page if image.suffix.lower() == '.pdf' else None, args.layout, args.picture)
         print(out)
@@ -180,8 +188,16 @@ def main():
 
     if args.command == 'progress':
         from . import progress
-        print(progress.report())
-        return
+        if args.watch is None:
+            print(progress.report())
+            return
+        import time
+        try:
+            while True:
+                print('\033[H\033[2J' + progress.report(), flush=True)
+                time.sleep(args.watch)
+        except KeyboardInterrupt:
+            return
 
     if args.command == 'scans':
         from . import scans

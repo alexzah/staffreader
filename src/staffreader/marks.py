@@ -340,8 +340,14 @@ def write_note_marks(el: ET.Element, marks: list[str]):
                 ET.SubElement(group('articulations'), name)
             elif name == 'art-other':
                 ET.SubElement(group('articulations'), 'other-articulation')
+            elif name == 'wavy-line':
+                # The token marks where a trill line starts, not where it
+                # ends; a line left open loses the score's other trills in
+                # professional engraving software, so it ends on its note.
+                ET.SubElement(group('ornaments'), name, type='start')
+                ET.SubElement(group('ornaments'), name, type='stop')
             elif name in ORNAMENTS:
-                ET.SubElement(group('ornaments'), name, **({'type': 'start'} if name == 'wavy-line' else {}))
+                ET.SubElement(group('ornaments'), name)
             elif name == 'orn-other':
                 ET.SubElement(group('ornaments'), 'other-ornament')
             elif name == 'schleifer':

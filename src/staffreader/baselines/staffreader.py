@@ -183,9 +183,12 @@ def _rests(n: int) -> list[tokens.Bar]:
                                'dots': 0, 'tuplet': None, 'tie': False, 'voice': 0}]) for _ in range(n)]
 
 
-def read_page(image: pathlib.Path, page: int | None, w: Work, number: int = 0) -> None:
+def read_page(image: pathlib.Path, page: int | None, w: Work, number: int = 0,
+              names: list[list[str]] | None = None) -> None:
     """Read one page into the work [w]: each staff's bars onto its part, a
-    part the page's systems leave out resting through them."""
+    part the page's systems leave out resting through them. [names], where
+    given, names each system's staves top to bottom, in place of the labels
+    the text reader would read."""
     gray = layout_suite.gray_page(image, page)
     lay = layout.read(gray)
     level = layout.level(gray, lay.angle, lay.bend)
@@ -194,7 +197,7 @@ def read_page(image: pathlib.Path, page: int | None, w: Work, number: int = 0) -
     # With a text reader, each staff's part comes from its label, matched
     # against the parts the work's earlier pages named, so a system that
     # leaves out resting staves keeps every staff on its part.
-    plan, named = _plan(level, lay, w.named, w.shown)
+    plan, named = _given_plan(lay, names, w.named) if names else _plan(level, lay, w.named, w.shown)
     if named:
         w.named = named
     for s_i, system in enumerate(lay.systems):
@@ -312,22 +315,25 @@ def write_work(w: Work, out: pathlib.Path) -> pathlib.Path:
     return out
 
 
-def read_work(pages: list[tuple[pathlib.Path, int | None]], work: pathlib.Path) -> pathlib.Path:
+def read_work(pages: list[tuple[pathlib.Path, int | None]], work: pathlib.Path,
+              names: list[list[list[str]] | None] | None = None) -> pathlib.Path:
     """The pages of one work, read in order into one score: the parts its
     first page names, matched on every later page by their labels, each
     part's time signature and key carried over, and a part a page leaves
-    out resting there."""
+    out resting there. [names], where given, names each page's staves
+    (see read_page)."""
     work.mkdir(parents=True, exist_ok=True)
     w = Work()
     for number, (image, page) in enumerate(pages):
-        read_page(image, page, w, number)
+        read_page(image, page, w, number, names[number] if names else None)
     (work / 'tokens.txt').write_text('\n'.join(f'{x}: {" ".join(s)}' for x, s in zip(w.where, w.seqs)))
     return write_work(w, work / 'reading.musicxml')
 
 
-def read(image: pathlib.Path, page: int | None, work: pathlib.Path) -> pathlib.Path:
+def read(image: pathlib.Path, page: int | None, work: pathlib.Path,
+         names: list[list[str]] | None = None) -> pathlib.Path:
     """One page on its own."""
-    return read_work([(image, page)], work)
+    return read_work([(image, page)], work, [names] if names else None)
 
 
 def tenor_clef(staves: list[list[tokens.Bar]]) -> None:
@@ -416,6 +422,50 @@ def _plan(level, lay, known: list | None = None,
     if not any(instruments.instrument(l) for names in systems for l in names):
         return None, None
     parts, plan = instruments.assign(systems, known, shown)
+    return plan, parts
+
+
+def _given_plan(lay, names: list[list[str]], known: list | None = None) -> tuple[list[list[int]], list]:
+    """Each system's part for each of its staff groups, from names someone
+    gave for each system's staves, top to bottom (a reviewer reading the
+    printed labels where the text reader cannot). Neighbouring staves with
+    the same name are one part, as a piano's are. The parts are the work's
+    [known] parts, if any, then each new name before the next part
+    printed below it, so a part a first system leaves out still takes its
+    place in score order (after the known parts, whose numbers the work's
+    bars already use)."""
+    from .. import instruments
+    if len(names) != len(lay.systems):
+        raise ValueError(f'names given for {len(names)} systems; the page has {len(lay.systems)} '
+                         f'({", ".join(str(len(s.staves)) for s in lay.systems)} staves)')
+    order = [p.key for p in known] if known else []
+    for s_i, (system, given) in enumerate(zip(lay.systems, names)):
+        if len(given) != len(system.staves):
+            raise ValueError(f'system {s_i + 1}: {len(given)} names given for {len(system.staves)} staves')
+        seen = list(dict.fromkeys(given))
+        for k, name in enumerate(seen):
+            if name in order:
+                continue
+            # A new part goes before the next part printed below it, or last;
+            # parts already read keep their numbers, so it goes after them.
+            below = next((order.index(n) for n in seen[k + 1:] if n in order), len(order))
+            order.insert(max(below, len(known or [])), name)
+    plan = []
+    for system, given in zip(lay.systems, names):
+        groups, ids = [], []
+        for st, name in zip(system.staves, given):
+            if groups and ids[-1] == order.index(name):
+                groups[-1].append(st)
+            else:
+                groups.append([st])
+                ids.append(order.index(name))
+        system.parts = groups
+        plan.append(ids)
+    by_key = {p.key: p for p in known or []}
+    parts = []
+    for name in order:
+        read = instruments.instrument(name)
+        parts.append(by_key.get(name) or instruments.Instrument(name, None, read.transpose if read else 0))
     return plan, parts
 
 
