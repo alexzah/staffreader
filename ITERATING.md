@@ -104,6 +104,18 @@ A variant passes when:
 
 Fixes that pass are batched into one long run, which a maintainer approves, since it holds the GPU for hours. After it, `staffreader diagnose --against` the model before gives the turn's result, recorded in the project's history of runs. The next turn starts from the new diagnosis.
 
+### The control stays current
+
+The model before (the control) is measured once, before or beside the run, never after it, so the run's results never wait on it: on the CPU while the run trains (`STAFFREADER_DEVICE=cpu`), or before the run starts. Its measurement must still describe what a measurement made at the run's end would: the same decoder on the ladder, the same test labels, the same scoring code. Work done while a run trains often changes one of them (a decoding fix, a corrected label, a new mask), and then the control has gone stale.
+
+So whenever reading, scoring or test labels change during a run, bring the control up to date at once, while there is time:
+
+- test labels or scoring changed: score its stored readings again, `uv run python experiments/rescore_eval.py <name>` (minutes, on the CPU);
+- the decoder changed: read its ladder again, `STAFFREADER_MODEL=<model> staffreader suite --reader staffreader --out runs/eval-<name>/ladder` (on the CPU while the GPU trains);
+- staff reading changed (model.py, staffcrop.py, layout.py): measure it again, `staffreader evaluate`.
+
+`staffreader stale runs/eval-<name>` says whether a control is current and what to do if not; run it after every such change and before calling a control ready. `staffreader evaluate --against` runs the same check and writes `stale-control.txt` beside the results when it fails, but by then it is late: the comparison is already unfair.
+
 ## Rules
 
 - Compare runs at a fixed number of steps, never a fixed time.

@@ -1,0 +1,30 @@
+# E15c: fingering from engravings that carry it. E15 weighed up the 1,806
+# engraved staves that print fingering sixteen times and the reader still
+# read none on real pages (it wrote 37, none right). Here 3,000 keyboard
+# scores are engraved with fingering added to whole runs (data._finger),
+# about 47,000 fingered staves, on v3-mix's recipe, steps and rate. Compared
+# with E15's control as E15b is. Judged by fingering on the reserved piano
+# pages (270 printed) and nothing worse than E13's chance.
+name: e15c-fingering
+base: models/v3-mix/last.pt
+steps: 3500
+lr: 0.0001
+runs:
+  fingering:
+    data:
+    - r2-single-quarter-v3
+    - r2-grand-v3
+    - r2-tenor-v3*2
+    - r3-vocal-pilot-v3
+    - r3-parts
+    - real3-v2-v3*8
+    - lieder-d-v2-v3*8
+    - orch-c-v2-v3*8
+    - pdmx-pilot-v3*32
+    - pdmx-a2-v3*32
+    - pdmx-a3-v3*32
+    - pdmx-recover-v3*32
+    - pdmx-b-v3*32
+    - pdmx-b-ens-v3*32
+    - r3-fingering
+    tasks: true

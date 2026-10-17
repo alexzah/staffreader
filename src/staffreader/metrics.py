@@ -293,7 +293,7 @@ def _families(m: Measure | None) -> dict[str, Counter]:
     return out
 
 
-def classify(mg: Measure | None, mp: Measure | None) -> Counter:
+def classify(mg: Measure | None, mp: Measure | None, ignore: frozenset = frozenset()) -> Counter:
     """Each mistake in one pair of measures, by kind: a note missed or
     added, a wrong pitch, a wrong accidental on the right note, a wrong
     length, a grace note read as a full one or the other way, a rest missed
@@ -328,6 +328,8 @@ def classify(mg: Measure | None, mp: Measure | None) -> Counter:
     out['extra rest'] += sum((pr - gr).values())
     if mg and mp:
         for name in ('clef', 'key', 'time'):
+            if name in ignore:
+                continue
             g = {x for x in printed(mg) if x.startswith(name)}
             q = {x for x in printed(mp) if x.startswith(name)}
             if g != q:
@@ -354,8 +356,16 @@ def valid(measures: list[Measure], j: int) -> bool:
     return any(0 <= k < len(measures) and measures[k].length() + length == m.nominal for k in (j - 1, j + 1))
 
 
-def compare(gt: Score, pred: Score) -> Report:
+def compare(gt: Score, pred: Score, ignore: frozenset = frozenset()) -> Report:
+    """[ignore] 'key': an answer whose key signature is not the print's
+    (an edition that prints its horns without one) is scored on the pitches
+    each side's key gives, not on the key signature printed nor on the
+    accidentals that stand in for it. A family of marks in [ignore]
+    ('hairpins': a transcription that left them out) is not scored."""
     report = Report(parts_gt=len(gt.parts), parts_read=len(pred.parts))
+
+    def shown(m):
+        return {x for x in printed(m) if not ('key' in ignore and x.startswith('key'))}
     for gi, pi in match_parts(gt, pred):
         g = gt.parts[gi]
         p = pred.parts[pi] if pi is not None else None
@@ -371,15 +381,16 @@ def compare(gt: Score, pred: Score) -> Report:
                 report.measures_extra += 1
             if j is None:
                 report.measures_missed += 1
-            report.errors += classify(mg, mp)
+            report.errors += classify(mg, mp, ignore)
             for lv in LEVELS:
                 report.notes[lv].add(_bag(mg, lv), _bag(mp, lv))
             report.rests.add(_bag(mg, 'rhythm', 'rest'), _bag(mp, 'rhythm', 'rest'))
             for ly in LAYERS:
-                report.layers[ly].add(_layer(mg, ly), _layer(mp, ly))
+                if not ('key' in ignore and ly == 'accidentals'):
+                    report.layers[ly].add(_layer(mg, ly), _layer(mp, ly))
             report.attributes.add(_attributes(mg), _attributes(mp))
             fg, fp = _families(mg), _families(mp)
-            for f in set(fg) | set(fp):
+            for f in (set(fg) | set(fp)) - ignore:
                 report.families.setdefault(f, Tally()).add(fg.get(f, Counter()), fp.get(f, Counter()))
             report.structure.add(Counter(mg.barlines) if mg else Counter(), Counter(mp.barlines) if mp else Counter())
             core_g = _bag(mg, 'core') + _bag(mg, 'rhythm', 'rest')
@@ -392,7 +403,7 @@ def compare(gt: Score, pred: Score) -> Report:
                 part=gi, gt=i, pred=j,
                 exact_core=mg is not None and mp is not None and core_g == core_p,
                 exact_full=(mg is not None and mp is not None and full_g == full_p
-                            and printed(mg) == printed(mp) and mg.barlines == mp.barlines),
+                            and shown(mg) == shown(mp) and mg.barlines == mp.barlines),
                 notes_gt=sum(notes_g.values()), notes_missed=sum(notes_g.values()) - both,
                 notes_extra=sum(notes_p.values()) - both,
                 valid=valid(p.measures, j) if mp is not None else None))

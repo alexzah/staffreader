@@ -314,3 +314,11 @@ def test_an_older_checkpoint_reads_as_it_did(tmp_path):
     memory = torch.zeros(1, 4, 64)
     out = loaded.logits(memory, torch.zeros(1, 4, dtype=torch.bool), torch.tensor([[M.BOS]]))
     assert torch.isinf(out[0, -1, -20:]).all() and torch.isfinite(out[0, -1, :-20]).all()
+
+
+def test_a_part_that_rests_through_a_page_without_a_time_takes_the_pages_meter():
+    playing = tokens.parse('clef:G2 key:0 N:C5 d:half N:D5 d:half | N:E5 d:whole | N:C5 d:whole |'.split())
+    resting = tokens.parse('clef:G2 key:0 R d:quarter | R:measure | R:measure |'.split())  # a split bar, then rests
+    root = ET.fromstring(tokens.to_musicxml([[playing], [resting]]))
+    times = [(t.findtext('beats'), t.findtext('beat-type')) for t in root.iter('time')]
+    assert times == [('4', '4'), ('4', '4')]

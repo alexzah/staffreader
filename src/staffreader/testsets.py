@@ -15,6 +15,7 @@ for the text reader, in data/test-lyrics."""
 
 from __future__ import annotations
 
+import collections
 import json
 import pathlib
 import re
@@ -116,9 +117,13 @@ def build(model: pathlib.Path, only: list[str] | None = None) -> dict[str, int]:
         out.mkdir(parents=True, exist_ok=True)
         pair = realign.pair_staves if p['staffwise'] else realign.pair_volume
         samples, report = pair(p['pdf'], p['rows'], net, name, out, _number(pdf_name), keep=0.0, fill=True)
+        if p['staffwise']:
+            partners(samples)
         rows = _relabel(samples)
         for r in rows:
             r['tokens'] = marks.drop(r['tokens'], p['masks'])
+        key_masks(rows, _number(pdf_name))
+        rows = as_printed(rows, _number(pdf_name))
         by_music.setdefault(p['music'], []).extend(rows)
         print(json.dumps(report), flush=True)
     if by_music.get('voice'):
@@ -132,6 +137,109 @@ def build(model: pathlib.Path, only: list[str] | None = None) -> dict[str, int]:
         counts[music] = len(rows)
     bar.finish(', '.join(f'test-{m}: {n} staves' for m, n in sorted(counts.items())))
     return counts
+
+
+def key_masks(rows: list[dict], number: str) -> int:
+    """Mark the rows reserved.yaml says the answer does not hold as
+    printed: those of a volume listed under unprinted_keys whose instrument
+    (or second player's) is one it names leave their key signatures
+    unscored, and those of a transcription listed under answer_lacks leave
+    the families of marks it names unscored. Returns how many rows were
+    marked."""
+    from . import instruments
+    listed = pathlib.Path(__file__).resolve().parents[2] / 'reserved.yaml'
+    found = (yaml.safe_load(listed.read_text()) or {}) if listed.exists() else {}
+    named = found.get('unprinted_keys') or {}
+    lacks = found.get('answer_lacks') or {}
+    kinds = set(named.get(int(number), []) if number.isdigit() else [])
+    names, marked = {}, 0
+    for r in rows:
+        name = re.sub(r'\.(musicxml|mxl|xml)$', '', pathlib.Path(r['mxl'].split(':', 1)[-1]).name)
+        masks = set(lacks.get(name, []))  # not Path.stem: 'Brahms_Op.90_4' has no suffix
+        if kinds:
+            path = _answer(r)
+            if path not in names:
+                names[path] = [sp.findtext('part-name') or '' for sp in _root(canonical.load(path)).iter('score-part')]
+            played = [names[path][k] for k in (r['part'], r.get('with')) if k is not None and k < len(names[path])]
+            if any((i := instruments.instrument(n)) is not None and i.name in kinds for n in played):
+                masks.add('key')
+        if masks:
+            r['masks'] = sorted(set(r.get('masks', [])) | masks)
+            marked += 1
+    return marked
+
+
+def as_printed(rows: list[dict], number: str) -> list[dict]:
+    """The rows written as their edition prints them, by reserved.yaml: a
+    part a volume prints on another part's staff throughout (printed_with:
+    Mozart's double bass on the cellos' staff) is left out, and a part it
+    prints in a plain bass clef sounding an octave lower (plain_bass_clef:
+    an old edition's contrabassoon), which the transcription writes in the
+    octave bass clef, is relabeled in the plain clef an octave higher. A
+    page's own shared parts (a case's) are the ladder's alone: a part that
+    rests on one page may have a staff of its own on the next."""
+    from . import instruments
+    listed = pathlib.Path(__file__).resolve().parents[2] / 'reserved.yaml'
+    found = (yaml.safe_load(listed.read_text()) or {}) if listed.exists() else {}
+    key = int(number) if number.isdigit() else None
+    plain = set((found.get('plain_bass_clef') or {}).get(key, []))
+    beside = set((found.get('printed_with') or {}).get(key, []))
+    if not plain and not beside:
+        return rows
+    names, out = {}, []
+    for r in rows:
+        path = _answer(r)
+        if path not in names:
+            names[path] = [sp.findtext('part-name') or '' for sp in _root(canonical.load(path)).iter('score-part')]
+        name = names[path][r['part']] if r['part'] < len(names[path]) else ''
+        if name in beside and r.get('with') is None:
+            continue
+        inst = instruments.instrument(name)
+        if inst is not None and inst.name in plain and 'clef:F4-8' in r['tokens']:
+            r = {**r, 'tokens': [_octave_up(t) for t in r['tokens']]}
+        out.append(r)
+    return out
+
+
+def _octave_up(t: str) -> str:
+    """A token with its pitch an octave higher, and the octave bass clef plain."""
+    if t == 'clef:F4-8':
+        return 'clef:F4'
+    m = re.match(r'(N:[A-G])(-?\d+)$', t)
+    return f'{m.group(1)}{int(m.group(2)) + 1}' if m else t
+
+
+def partners(rows: list[dict]) -> int:
+    """A numbered player whose partner (1 and 2, 3 and 4) has no staff of
+    its own in the system is printed on this staff with it, or rests and
+    is not printed: the row is labeled with both players, as pairing labels
+    the two-player staves it finds (tokens.merged_part keeps a resting
+    partner silent). Returns how many rows were given a partner."""
+    names: dict = {}
+    systems: dict = collections.defaultdict(set)
+
+    def system(r):
+        return r['pdf'], re.sub(r'-n\d+\.png$', '', r['image'])
+    for r in rows:
+        systems[system(r)] |= {r['part']} | ({r['with']} if r.get('with') is not None else set())
+    given = 0
+    for r in rows:
+        if r.get('with') is not None:
+            continue
+        path = _answer(r)
+        if path not in names:
+            names[path] = [sp.findtext('part-name') or '' for sp in _root(canonical.load(path)).iter('score-part')]
+        ns = names[path]
+        m = re.match(r'(.*?)\s*(\d)$', ns[r['part']] if r['part'] < len(ns) else '')
+        if not m:
+            continue
+        n = int(m.group(2))
+        other = next((j for j, x in enumerate(ns) if x == f'{m.group(1)} {n + 1 if n % 2 else n - 1}'), None)
+        if other is None or other in systems[system(r)]:
+            continue
+        r['part'], r['with'] = min(r['part'], other), max(r['part'], other)
+        given += 1
+    return given
 
 
 def _answer(r: dict) -> pathlib.Path:

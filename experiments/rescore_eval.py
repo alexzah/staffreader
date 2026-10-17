@@ -5,7 +5,9 @@ set's labels are corrected but its pictures are not (2026-10-15: two
 players on one staff, analysis lyrics, placements out of order), the
 readings need not be made again: each record's label is replaced by the
 set's corrected one, staves the set no longer holds are left out, and
-each is scored as `measure` scores it. Writes runs/eval-<name>-fixed,
+each is scored as `measure` scores it. A staff whose label carries masks
+(test rows' 'masks': a key signature the answer does not hold as printed)
+is scored without them. Writes runs/eval-<name>-fixed,
 with the ladder and text results copied, and its diagnosis.
 
   uv run python experiments/rescore_eval.py <name> [--against <name>]
@@ -22,8 +24,9 @@ from staffreader.progress import Progress
 from staffreader.render import CACHE
 
 
-def labels() -> dict[str, list[str]]:
-    """Every corrected label, by the staff picture's path."""
+def labels() -> dict[str, tuple[list[str], list[str]]]:
+    """Every corrected label and what of it is not scored (its masks), by
+    the staff picture's path."""
     out = {}
     for d in (CACHE / 'data').iterdir():
         index = d / 'index.jsonl'
@@ -32,14 +35,14 @@ def labels() -> dict[str, list[str]]:
             continue
         for line in open(index):
             r = json.loads(line)
-            out[os.path.normpath(str(d / r['image']))] = r['tokens']
+            out[os.path.normpath(str(d / r['image']))] = (r['tokens'], r.get('masks', []))
     return out
 
 
-def rescore(rec: dict, truth: list[str]) -> dict:
+def rescore(rec: dict, truth: list[str], masks=()) -> dict:
     if rec.get('task') == 'notes':
         truth = strip(truth)
-    r = metrics.compare(measure._score(truth), measure._score(rec['read']))
+    r = metrics.compare(measure._score(truth), measure._score(rec['read']), frozenset(masks))
     gt_bars = [b for b in r.bars if b.gt is not None]
     return {**rec, 'truth': truth, 'tp': r.notes['core'].tp, 'fp': r.notes['core'].fp, 'fn': r.notes['core'].fn,
             'bars': len(gt_bars), 'bars_exact': sum(b.exact_full for b in gt_bars), 'errors': dict(r.errors),
@@ -66,14 +69,14 @@ def main():
                 path = os.path.normpath(rec['path'])
                 if path not in fixed:
                     continue  # a staff the corrected set no longer holds
-                new = fixed[path]
+                new, masks = fixed[path]
                 if rec.get('unreadable'):
                     w.write(json.dumps(rec) + '\n')
                     kept += 1
                     continue
                 truth = strip(new) if rec.get('task') == 'notes' else new
-                if truth != rec['truth']:
-                    rec = rescore(rec, new)
+                if truth != rec['truth'] or masks:
+                    rec = rescore(rec, new, masks)
                     changed += 1
                 w.write(json.dumps(rec) + '\n')
                 kept += 1

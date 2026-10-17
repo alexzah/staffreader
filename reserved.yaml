@@ -19,3 +19,35 @@ pdmx:
     music: piano
     mxl: [mxl/17/17/QmZebw69299pYc7Fqdd8xyUXETMoHumsgE1RNeNzdZgZrR.mxl,
           mxl/6/51/QmNWC9Q7Ap4p4GRMS91vKPN1rPSjPkCf8QDj28jSY4An31.mxl]
+# Volumes whose transcriptions give some instruments a key signature the
+# print does not have, by IMSLP file number: those instruments' key
+# signatures are not scored. Brahms's symphonies in the Breitkopf collected
+# edition print horns, trumpets and timpani without one and the clarinets in
+# the key of the instrument played, which OpenScore's parts do not follow
+# (checked by eye on ten staves, 2026-10-16); their notes are right.
+unprinted_keys:
+  317593: [clarinet, horn, trumpet, timpani]
+# Transcriptions that leave out a family of marks the print has, by file
+# name: that family is not scored on their staves in the test sets, and
+# their staves teach the notes alone in training. OpenScore's Brahms
+# transcriptions below hold no hairpin, and the Breitkopf prints have many
+# (checked by eye, 2026-10-16: three test staves of the Third, six training
+# staves each of the First and Second, six of the Requiem's first movement). Beethoven's movements without hairpins
+# (Op. 67 iv, 92 iv, 93 i-iii) print cresc. in words instead, and are right.
+answer_lacks:
+  Brahms_Op.90_1: [hairpins]
+  Brahms_Op.90_2: [hairpins]
+  Brahms_Op.90_4: [hairpins]
+  Brahms_Op.68_2: [hairpins]
+  Brahms_Op.73_2: [hairpins]
+  Brahms_Op.45_1: [hairpins]
+# Instruments a volume prints in a plain bass clef, sounding an octave
+# lower, which the transcription writes in the octave bass clef: relabeled
+# as printed. The Breitkopf Brahms prints the contrabassoon so.
+plain_bass_clef:
+  317593: [contrabassoon]
+# Parts a volume prints on another part's staff throughout, by IMSLP file
+# number: their rows leave the test set, as they leave a case's answer.
+# Mozart's 40th (IMSLP 72) prints the double bass on the cellos' staff.
+printed_with:
+  72: [Contrabass]

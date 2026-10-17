@@ -223,7 +223,8 @@ class Reader(nn.Module):
              lead: list | None = None, most: float = 0.5, tries: int = 48,
              skip: list | None = None) -> list[list['Fit']]:
         """For each staff's reading [seqs], each bar a voice of which runs
-        past its time signature, read again as triplets. A triplet printed
+        past its time signature, read again as triplets, or with a repeated
+        figure taken out (repeat_options). A triplet printed
         without its "3" is read as plain notes, which overfills the bar by
         a third of the group; the notes and their pitches are right. So
         runs of three like notes in that voice are tried as triplets until
@@ -250,7 +251,7 @@ class Reader(nn.Module):
         memory, pad = self.memory(images, widths)
         for i, sp in jobs:
             read = seqs[i][sp.start:sp.end + 1]
-            options = triplet_options(read, sp.limit, tries)
+            options = triplet_options(read, sp.limit, tries) + repeat_options(read, sp.limit)
             if not options:
                 continue
             head = [BOS] + [INDEX[t] for t in (lead[i] if lead else [])] + [INDEX[t] for t in seqs[i][:sp.start]]
@@ -417,7 +418,9 @@ def bar_spans(seq: list[str], limit=None) -> list[Span]:
     for k, t in enumerate(seq):
         st.add(t)
         if t in tokens.BARLINES:
-            spans.append(Span(start, k, at_start.limit if at_start.limit is not None else st.limit,
+            # The time in force at the barline: a bar that opens with a
+            # change of meter is measured against its new time.
+            spans.append(Span(start, k, st.limit if st.limit is not None else at_start.limit,
                               [v for v in st.closed if v > 0], at_start))
             start, at_start = k + 1, copy.deepcopy(st)
     return spans
@@ -538,6 +541,44 @@ def triplet_options(bar: list[str], limit, most: int = 48) -> list[list[str]]:
             if k in marked:
                 new.append('tup:3:2')
         out.append(new)
+    return out
+
+
+EVENT_STARTS = ('N:', 'acc:')
+
+
+def repeat_options(bar: list[str], limit) -> list[list[str]]:
+    """Readings of one bar, [bar] as read with its barline, with one figure
+    taken out where it repeats the figure just before it token for token,
+    so that every voice fills [limit] exactly. In a run of repeated figures
+    the reader can lose its place and write one figure too many; the
+    notes it wrote are otherwise right."""
+    if limit is None:
+        return []
+    # Where each event begins: a note (or its accidental) not sounding with
+    # the one before, a rest, a spacer or a grace note's mark.
+    starts = []
+    for k, t in enumerate(bar[:-1]):
+        joined = k > 0 and bar[k - 1] in ('+', 'gr') or (k > 0 and bar[k - 1].startswith('acc:') and t.startswith('N:'))
+        if not joined and (t.startswith(EVENT_STARTS) or t in ('R', 'S', 'gr')):
+            starts.append(k)
+        elif t == '&':
+            starts.append(k)
+    starts.append(len(bar) - 1)
+    out, seen = [], set()
+    # A figure of two to four events: one note too many in a run of like
+    # notes is more often a triplet printed without its "3" (triplet_options).
+    for size in range(2, 5):
+        for a in range(size, len(starts) - size):
+            prev, cut, end = starts[a - size], starts[a], starts[a + size]
+            if '&' in bar[prev:end] or bar[prev:cut] != bar[cut:end]:
+                continue
+            new = bar[:cut] + bar[end:]
+            spans = bar_spans(new, limit)
+            if len(spans) == 1 and spans[0].voices and all(v == limit for v in spans[0].voices) \
+                    and tuple(new) not in seen:
+                seen.add(tuple(new))
+                out.append(new)
     return out
 
 

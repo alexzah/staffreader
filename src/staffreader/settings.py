@@ -39,6 +39,8 @@ DEFAULTS: dict[str, str | None] = {
     'model': None,  # the reader's checkpoint, when not the default
     'text_model': None,
     'triplet_margin': '12',  # nats; a negative margin reads no overfull bar again (baselines/staffreader.py)
+    'word_finder': None,  # a word finder's checkpoint (words.py): directions in words read by the text reader
+    'words_replace_all': None,  # with a word finder, drop the staff reader's words even where none is found
 }
 _FILE: dict | None = None
 

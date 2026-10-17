@@ -39,10 +39,14 @@ def _boring(seq: list[str]) -> bool:
 class Sample:
     """One staff to learn from, kept small: hundreds of thousands of them
     sit in memory, and in every data worker's."""
-    __slots__ = ('path', 'ids', 'width', 'real', 'notes_only')
+    __slots__ = ('path', 'ids', 'width', 'real', 'notes_only', 'masks')
 
-    def __init__(self, path: str, ids: np.ndarray, width: int, real: bool, notes_only: bool = False):
+    def __init__(self, path: str, ids: np.ndarray, width: int, real: bool, notes_only: bool = False,
+                 masks: tuple = ()):
         self.path, self.ids, self.width, self.real = path, ids, width, real
+        # What a test staff's answer does not hold as printed ('key': an
+        # edition prints its horns without a key signature), left unscored.
+        self.masks = masks
         # A real scan paired with a transcription that is not OpenScore's (a
         # PDMX user's) teaches its notes only: such transcriptions add marks
         # the print does not show, such as metronome marks for rubato.
@@ -59,6 +63,21 @@ def reserved() -> set[str]:
     if f.exists():
         out |= set(str(v) for v in (yaml.safe_load(f.read_text()) or {}).get('volumes') or [])
     return out
+
+
+def lacking() -> set[str]:
+    """Transcriptions that leave out a family of marks their print has
+    (reserved.yaml answer_lacks), by file name without its suffix: their
+    staves teach the notes alone, since the marks task would learn to
+    leave out what the page prints."""
+    import yaml
+    f = pathlib.Path(__file__).resolve().parents[2] / 'reserved.yaml'
+    return set(((yaml.safe_load(f.read_text()) or {}).get('answer_lacks') or {}) if f.exists() else {})
+
+
+def _stem(mxl: str) -> str:
+    import re
+    return re.sub(r'\.(musicxml|mxl|xml)$', '', pathlib.Path(str(mxl).split(':', 1)[-1]).name)
 
 
 def _is_reserved(pdf: str | None, keep: set[str]) -> bool:
@@ -105,6 +124,7 @@ def samples(dirs: list[pathlib.Path], held_out: bool | None, repeats: list[int] 
     from .progress import Progress
     rng = random.Random(0)
     out = []
+    lacks = lacking()
     # No page of a scan the test ladder reads ever trains: a volume with a
     # case in it is held out whole.
     ladder = reserved()
@@ -135,7 +155,9 @@ def samples(dirs: list[pathlib.Path], held_out: bool | None, repeats: list[int] 
                 continue
             real = s.get('font') == 'scan'
             sample = Sample(str(d / s['image']), np.array(M.encode(s['tokens']), np.int16), widths[k], real,
-                            notes_only=real and not str(s.get('mxl', '')).startswith('openscore:'))
+                            notes_only=real and (not str(s.get('mxl', '')).startswith('openscore:')
+                                                 or _stem(s.get('mxl', '')) in lacks),
+                            masks=tuple(s.get('masks', ())))
             out += [sample] * (boost_count(s['tokens'], boost, rng) if held_out is False else 1)
         seen += len(lines[d])
         if not held_out:

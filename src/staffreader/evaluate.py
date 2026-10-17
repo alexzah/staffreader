@@ -31,6 +31,52 @@ def _tasks(checkpoint: pathlib.Path) -> bool:
     return bool(torch.load(checkpoint, map_location='cpu', weights_only=True).get('tasks'))
 
 
+# What a control's evaluation depends on besides its model: code that reads
+# a staff (a measured record is stale when it changes), code that scores a
+# reading against its label (records can be scored again without reading,
+# experiments/rescore_eval.py), and the reader's decoder, which names the
+# ladder's readings.
+READS = ('model.py', 'staffcrop.py', 'layout.py')
+SCORES = ('metrics.py', 'canonical.py', 'measure.py', 'tokens.py', 'marks.py', 'diagnose.py')
+
+
+def stale(folder: pathlib.Path) -> list[str]:
+    """Why an evaluation folder no longer measures what an evaluation made
+    now would: its ladder read with another decoder, test labels changed
+    since its records were scored, or code that reads or scores changed
+    since. A control must be current before a new model is compared with
+    it (ITERATING.md, "The control stays current")."""
+    from .baselines import staffreader as ours
+    out = []
+    ladder = folder / 'ladder' / 'results.json'
+    if ladder.exists():
+        readers = {r['reader'] for r in json.loads(ladder.read_text()) if str(r.get('reader', '')).startswith('staffreader')}
+        old = sorted(r for r in readers if not r.endswith(ours.DECODER))
+        if old:
+            out.append(f'its ladder was read with another decoder ({old[0]}); read it again: '
+                       f'STAFFREADER_MODEL=<model> staffreader suite --reader staffreader --out {folder / "ladder"}')
+    else:
+        out.append('it has no ladder')
+    records = folder / 'records-notes.jsonl'
+    if not records.exists():
+        return out + ['it has no records']
+    scored = records.stat().st_mtime
+    labels = [p.parent.name for p in (CACHE / 'data').glob('test-*/index.jsonl') if p.stat().st_mtime > scored]
+    if labels:
+        out.append(f'test labels changed since it was scored ({", ".join(sorted(labels))}); '
+                   f'score it again: uv run python experiments/rescore_eval.py <name>')
+    here = pathlib.Path(__file__).parent
+    scoring = [f for f in SCORES if (here / f).stat().st_mtime > scored]
+    if scoring:
+        out.append(f'scoring code changed since it was scored ({", ".join(scoring)}); score it again '
+                   f'(experiments/rescore_eval.py)')
+    reading = [f for f in READS if (here / f).stat().st_mtime > scored]
+    if reading:
+        out.append(f'reading code changed since it was measured ({", ".join(reading)}); measure it again '
+                   f'(staffreader evaluate)')
+    return out
+
+
 def evaluate(checkpoint: pathlib.Path, name: str, against: pathlib.Path | None = None,
              ladder: bool = True, per_kind: int = 400) -> pathlib.Path:
     """Measure [checkpoint] on every test set into runs/eval-<name>: one
@@ -39,6 +85,12 @@ def evaluate(checkpoint: pathlib.Path, name: str, against: pathlib.Path | None =
     [against] is an earlier evaluation's folder, to compare with."""
     out = CACHE / 'runs' / f'eval-{name}'
     out.mkdir(parents=True, exist_ok=True)
+    if against and (why := stale(against)):
+        # Said loudly and kept with the results, not refused: a long run's
+        # last stage must not be lost to it.
+        warning = f'THE CONTROL {against.name} IS STALE: ' + '; '.join(why)
+        print(warning, flush=True)
+        (out / 'stale-control.txt').write_text(warning + '\n')
     tasks = _tasks(checkpoint)
     tests = sorted(p.name for p in (CACHE / 'data').glob('test-*') if (p / 'index.jsonl').exists())
     jobs = [('notes', 'notes' if tasks else None)] + ([('marks', 'marks')] if tasks else [])
@@ -98,6 +150,8 @@ def report(out: pathlib.Path, against: pathlib.Path | None = None) -> pathlib.Pa
     for r in notes:
         if r['path'] in by_path:
             r['marks'] = by_path[r['path']].get('marks', {})
+            # The marks reading itself, for marks scored part by part (diagnose.part_marks).
+            r['marks_truth'], r['marks_read'] = by_path[r['path']].get('truth'), by_path[r['path']].get('read')
     before = None
     if against:
         before = diagnose.read_records([p for p in (against / 'records-notes.jsonl',) if p.exists()])

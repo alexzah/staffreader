@@ -38,3 +38,13 @@ def test_a_slur_from_the_staff_below_does_not_swallow_the_last_verse():
     page, staff = _page(3, stems=False)
     cv2.ellipse(page, (800, 420), (300, 90), 0, 180, 360, 0, 3)  # arcs up past the last verse
     assert len(lyrics.rows(page, staff, 440)) == 3
+
+
+def test_a_hyphen_the_reader_missed_is_put_back_where_the_language_divides_the_word():
+    # Brahms, Regenlied: 'at-mend' and 'Her-zens' are printed tight and read whole.
+    line = 'stand die See- le atmend of- fen, an des Herzens Klop- fen,'
+    assert lyrics.mend(line, 2) == 'stand die See- le at- mend of- fen, an des Her- zens Klop- fen,'
+
+
+def test_a_verse_with_a_syllable_for_every_note_is_left_as_read():
+    assert lyrics.mend('Schauernd kühl- te', 0) == 'Schauernd kühl- te'

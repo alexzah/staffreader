@@ -135,14 +135,77 @@ def syllables(line: str) -> list[tuple[str, str, bool]]:
     return out
 
 
+# The languages songs are mostly printed in, as the hyphenation
+# dictionaries name them.
+LANGUAGES = ('de_DE', 'it_IT', 'en_US', 'fr_FR')
+VOWELS = set('aeiouyäöüàèéìòóùâêîôûë')
+
+
+def _pieces(dictionary, word: str) -> list[str]:
+    """A word's syllables as [dictionary] divides it, a piece with no vowel
+    joined to the one before ('Him-mel-s-tau' as 'Him-mels-tau')."""
+    out = []
+    for p in dictionary.inserted(word).split('-'):
+        if out and not VOWELS & set(p.lower()):
+            out[-1] += p
+        else:
+            out.append(p)
+    return out
+
+
+def mend(line: str, short: int) -> str:
+    """A verse that holds [short] syllables fewer than the notes it is sung
+    to, with that many hyphens put back. Printed lyrics hyphenate every
+    word of more than one syllable, and the reader can miss a hyphen set
+    tight between two syllables ('atmend' for 'at-mend'), which puts every
+    later syllable on the note before its own. The hyphens go into words
+    printed whole that the line's language divides, from the left; the
+    language is the one whose dictionary divides the line's hyphenated
+    words as they are printed."""
+    import pyphen
+    words = line.split()
+    whole = [k for k, w in enumerate(words) if '-' not in w and (k == 0 or not words[k - 1].endswith('-'))
+             and sum(c.isalpha() for c in w) >= 4]
+    if short <= 0 or not whole:
+        return line
+    printed, current = [], []
+    for w in words:  # each hyphenated word as its printed syllables
+        current.append(w.strip('-_,.;:!?'))
+        if not w.endswith('-'):
+            if len(current) > 1:
+                printed.append(current)
+            current = []
+    best, agree = None, 0
+    for lang in LANGUAGES:
+        d = pyphen.Pyphen(lang=lang)
+        n = sum(_pieces(d, ''.join(p)) == p for p in printed)
+        if n > agree:
+            best, agree = d, n
+    if best is None:
+        return line
+    for k in whole:
+        if short <= 0:
+            break
+        word = words[k]
+        core = word.rstrip(',.;:!?_')
+        pieces = _pieces(best, core)
+        if 1 < len(pieces) <= short + 1:
+            words[k] = '- '.join(pieces) + word[len(core):]
+            short -= len(pieces) - 1
+    return ' '.join(words)
+
+
 def attach(bars, verses: list[str]) -> int:
     """Put each verse's syllables under the notes of [bars] marked 'ly',
-    in order. Returns how many marked notes went without a syllable in
-    verse 1, which a check can report."""
+    in order, a verse with fewer syllables than notes mended first. Returns
+    how many marked notes went without a syllable in verse 1, which a check
+    can report."""
     marked = [n for bar in bars for n in bar.notes if 'ly' in n.get('marks', [])]
     missing = 0
     for v, line in enumerate(verses, start=1):
         sung = syllables(line)
+        if len(sung) < len(marked):
+            sung = syllables(mend(line, len(marked) - len(sung)))
         for n, syl in zip(marked, sung):
             n.setdefault('lyrics', []).append((v, *syl))
         if v == 1:

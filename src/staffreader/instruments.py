@@ -30,7 +30,8 @@ NAMES = [
     ('clarinetto', 'clarinet'), ('clarinetti', 'clarinet'), ('klarinette', 'clarinet'), ('klarinetten', 'clarinet'),
     ('clarinet', 'clarinet'), ('klar', 'clarinet'), ('clar', 'clarinet'), ('cl', 'clarinet'), ('kl', 'clarinet'),
     ('kontrafagott', 'contrabassoon'), ('contrafagotto', 'contrabassoon'), ('k fag', 'contrabassoon'),
-    ('kfag', 'contrabassoon'), ('cfg', 'contrabassoon'), ('c fag', 'contrabassoon'),
+    ('kfag', 'contrabassoon'), ('cfg', 'contrabassoon'), ('c fag', 'contrabassoon'), ('contrabassoon', 'contrabassoon'),
+    ('contra bassoon', 'contrabassoon'), ('double bassoon', 'contrabassoon'), ('cbsn', 'contrabassoon'),
     ('fagotto', 'bassoon'), ('fagotti', 'bassoon'), ('fagott', 'bassoon'), ('fagotte', 'bassoon'),
     ('bassoon', 'bassoon'), ('basson', 'bassoon'), ('fag', 'bassoon'), ('fg', 'bassoon'), ('bsn', 'bassoon'),
     ('corno', 'horn'), ('corni', 'horn'), ('horn', 'horn'), ('horner', 'horn'), ('cor', 'horn'), ('hr', 'horn'),
@@ -66,6 +67,11 @@ NAMES = [
     ('soprano', 'soprano'), ('sopran', 'soprano'), ('tenore', 'tenor'), ('tenor', 'tenor'),
     ('pianoforte', 'piano'), ('piano', 'piano'), ('klavier', 'piano'), ('pfte', 'piano'),
     ('organo', 'organ'), ('orgel', 'organ'), ('organ', 'organ'),
+    ('ophicleide', 'ophicleide'), ('oficleide', 'ophicleide'), ('ophikleide', 'ophicleide'), ('oph', 'ophicleide'),
+    ('piatti', 'cymbals'), ('becken', 'cymbals'), ('cymbales', 'cymbals'), ('cymbals', 'cymbals'),
+    ('gran cassa', 'bass drum'), ('grosse trommel', 'bass drum'), ('grosse caisse', 'bass drum'),
+    ('bass drum', 'bass drum'), ('triangolo', 'triangle'), ('triangel', 'triangle'), ('triangle', 'triangle'),
+    ('tamburo', 'side drum'), ('kleine trommel', 'side drum'), ('tambour', 'side drum'), ('side drum', 'side drum'),
 ]
 
 # The key an instrument is pitched in, as printed ('in B', '(F)'), to the
@@ -108,6 +114,12 @@ def instrument(label: str | None) -> Instrument | None:
             name, rest = inst, re.sub(rf'(^| ){re.escape(printed)}( |$)', ' ', text, count=1).strip()
             break
     if name is None:
+        # 'in' run into the name before it ('Cornoin B alto'): parted, and read again.
+        names = {printed for printed, _ in NAMES}
+        parted = ' '.join(f'{w[:-2]} in' if w not in names and w.endswith('in') and w[:-2] in names else w
+                          for w in text.split())
+        if parted != text:
+            return instrument(parted)
         # A name misread by a letter ('Vic' for 'Viol', 'Kla' for 'Klar'):
         # the printed name it is closest to, where it is close.
         import difflib

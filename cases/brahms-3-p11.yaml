@@ -12,5 +12,10 @@ title: Brahms, Symphony No. 3, I, printed bars 97-108 (IMSLP 317593 p. 11)
 proves: An orchestral page whose barlines stop at each family's bracket, two players to a staff
 truth: {key: Brahms_Op.90_1, bars: [99, 110]}
 tracks:
+  # The page prints twelve staves: each wind staff holds two players, the
+  # horns in C and in F one staff each, and the trumpets, trombones and
+  # timpani rest and are left out. Those parts leave this track's answer.
   - {kind: scan, pdf: "IMSLP317593-PMLP01698-Brahms_Werke_Band_2_Breitkopf_JB_3_Op_90_scan.pdf", page: 11,
-     layout: [[12, 6], [12, 6]]}
+     layout: [[12, 6], [12, 6]],
+     shared: [Flute 2, Oboe 2, Bb Clarinet 2, Bassoon 2, C Horn 2, F Horn 4, F Trumpet 1, F Trumpet 2,
+              Trombone 1, Trombone 2, Trombone 3, Timpani]}

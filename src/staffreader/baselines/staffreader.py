@@ -19,6 +19,7 @@ import pathlib
 from fractions import Fraction
 
 import cv2
+import numpy as np
 import torch
 
 from .. import settings
@@ -57,7 +58,13 @@ del _STATE
 # key per system; as many bars as the layout counts; an overfull bar read
 # again as triplets (Reader.fits) within TRIPLET_MARGIN.
 TRIPLET_MARGIN = float(settings.get('triplet_margin'))
-DECODER = 'bars2-parts-key2-count' + ('-tasks' if TASKS else '') + (f'-triplets{TRIPLET_MARGIN:g}' if TRIPLET_MARGIN >= 0 else '') + '-norepeat'
+# The word finder (words.py) the reader uses, where the word_finder setting
+# names one: the directions in words on a page are then found and read by
+# the text reader in place of the staff reader's spelling.
+WORD_FINDER = settings.path('word_finder')
+WORDS_REPLACE_ALL = settings.get('words_replace_all') in ('1', 'true', 'yes')
+
+DECODER = 'bars2-parts-key2-count' + ('-tasks' if TASKS else '') + (f'-triplets{TRIPLET_MARGIN:g}' if TRIPLET_MARGIN >= 0 else '') + '-norepeat-labels2-repeats-mend-meter-pagemeter' + (f'-words{"all" if WORDS_REPLACE_ALL else ""}-{WORD_FINDER.parent.name}' if WORD_FINDER else '')
 # Nats a triplet reading of an overfull bar may fall short of the reading it
 # replaces. The model cannot see a "3" that is not printed, so it always
 # finds the triplets less likely; E11 (experiments/e11_refit.py) chose 12 on
@@ -218,7 +225,8 @@ def read_page(image: pathlib.Path, page: int | None, w: Work, number: int = 0) -
             # fill has a time signature that is wrong or not yet known: left alone.
             got = triplets(crops, got, [guess if lim is None or lim == guess else None for lim in limits], task)
         marked = read_staves(crops, limits=limits, counts=counts, task='marks') if TASKS else got
-        for place, st, seq, full in zip(places, staves, got, marked):
+        read = []
+        for st, seq, full in zip(staves, got, marked):
             bars = tokens.parse(seq)
             if TASKS:
                 bars = tokens.merge_marks(bars, tokens.parse(full))
@@ -227,6 +235,10 @@ def read_page(image: pathlib.Path, page: int | None, w: Work, number: int = 0) -
                 below = lay.staves[st + 1].top if st + 1 < len(lay.staves) else level.shape[0]
                 verses = lyrics.read_rows(level, staff, lyrics.rows(level, staff, below))
                 lyrics.attach(bars, verses)
+            read.append(bars)
+        if WORD_FINDER is not None:
+            _words(level, lay, system, staves, read)
+        for place, seq, bars in zip(places, got, read):
             for b in bars:
                 if b.time:
                     beats, unit, _ = tokens._time_value(b.time)
@@ -248,6 +260,41 @@ def read_page(image: pathlib.Path, page: int | None, w: Work, number: int = 0) -
                 if short > 0:
                     w.parts[k][n] += _rests(short)
         w.shown = {k for k, _ in places}
+
+
+_FINDER = None
+_PAGE_WORDS: dict[int, list] = {}
+
+
+def _words(level, lay, system, staves, read) -> None:
+    """The directions in words of one system, found on the page and read by
+    the text reader, put on its staves in place of the staff reader's."""
+    global _FINDER
+    import torch
+    from .. import positions, text, words
+    if _FINDER is None:
+        _FINDER = words.load(WORD_FINDER)
+    key = id(level)
+    if key not in _PAGE_WORDS:  # once a page: its boxes, read
+        _PAGE_WORDS.clear()
+        space = float(np.median([s.space for s in lay.staves]))
+        boxes = words.find(_FINDER, level, space)
+        net = lyrics.text_reader()
+        texts = []
+        if boxes and net is not None:
+            pad = int(0.3 * space)
+            crops = [level[max(0, y0 - pad):y1 + pad, max(0, x0 - pad):x1 + pad] for x0, y0, x1, y1 in boxes]
+            x, wd = text.batch([text.view(c) for c in crops], next(net.parameters()).device)
+            with torch.autocast('cuda', dtype=torch.bfloat16, enabled=torch.cuda.is_available()):
+                texts = net.read(x, wd)
+        _PAGE_WORDS[key] = [list(zip(boxes, texts)), positions.heads(level, lay)]
+    found, heads = _PAGE_WORDS[key]
+    top, bottom = lay.staves[staves[0]].top, lay.staves[staves[-1]].bottom
+    space = lay.staves[staves[0]].space
+    mine = [f for f in found if top - 6 * space <= (f[0][1] + f[0][3]) / 2 <= bottom + 6 * space]
+    for st, bars in zip(staves, read):
+        positions.place(bars, lay.staves[st], heads[st], system.barlines)
+    words.place_words(mine, [lay.staves[st] for st in staves], read, system.barlines, WORDS_REPLACE_ALL)
 
 
 def write_work(w: Work, out: pathlib.Path) -> pathlib.Path:
@@ -390,8 +437,14 @@ def _margin_labels(level, lay, system, groups) -> list[tuple[list[int], list]]:
         return []
     strip = level[top:bottom, x0:x1].copy()
     n, lab, stats, _ = cv2.connectedComponentsWithStats((strip < 128).astype(np.uint8), connectivity=8)
+    # Capitals and tall letters stand up to about 2.9 spaces in the
+    # editions measured, so height alone is no test. A bracket or brace is
+    # taller than any letter, or a tall thin stroke, or stands against
+    # the staves at the strip's right edge.
     for k in range(1, n):
-        if stats[k, cv2.CC_STAT_HEIGHT] > 2.5 * space:
+        h, w = stats[k, cv2.CC_STAT_HEIGHT], stats[k, cv2.CC_STAT_WIDTH]
+        right = strip.shape[1] - (stats[k, cv2.CC_STAT_LEFT] + w)
+        if h > 5 * space or (h > 3 * space and (w < 0.6 * space or right < 1.5 * space)):
             strip[lab == k] = 255
     rows = np.flatnonzero((strip < 128).any(axis=1))
     if not len(rows):

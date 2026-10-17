@@ -19,8 +19,11 @@ import html
 import json
 import pathlib
 import random
+import re
 
 import cv2
+
+from . import tokens
 
 FAMILY_OF_SET = [('real', 'quartet'), ('lieder', 'voice and piano'), ('orch', 'orchestra'), ('r2-grand', 'piano'),
                  ('m4-a', 'piano'), ('r2-tenor', 'tenor clef'), ('m5-tenor', 'tenor clef'), ('r2-single', 'one staff'),
@@ -80,6 +83,60 @@ def _f1(tp: int, fp: int, fn: int) -> float:
     return 2 * p * r / max(1e-9, p + r)
 
 
+PART_STAFF = re.compile(r'(.*)-(\d+)-(\d+)\.png$')  # a test staff's picture: <system>-<part>-<staff>.png
+BETWEEN = ('hp', 'dyn:')  # marks a two-staff part prints between its staves: hairpins and dynamics
+
+
+def _directions(bars) -> collections.Counter:
+    """A staff's hairpins and dynamics as (bar, onset, mark)."""
+    out = collections.Counter()
+    for b, bar in enumerate(bars):
+        for n, at in zip(bar.notes, tokens._onsets(bar.notes)):
+            for m in n.get('before', []):
+                if m.startswith(BETWEEN):
+                    out[(b, at, m)] += 1
+        for m in bar.after:
+            if m.startswith(BETWEEN):
+                out[(b, 'end', m)] += 1
+    return out
+
+
+def _part(upper: list[str] | None, lower: list[str] | None) -> collections.Counter:
+    """A two-staff part's hairpins and dynamics as its assembly keeps them:
+    a mark read between the staves on both counts once (tokens._dedupe_between)."""
+    try:
+        a, b = tokens.parse(upper or []), tokens.parse(lower or [])
+    except Exception:
+        return collections.Counter()
+    tokens._dedupe_between(a, b)
+    return _directions(a) + _directions(b)
+
+
+def part_marks(records: list[dict]) -> dict:
+    """Hairpins and dynamics of two-staff parts (piano, harp), scored part
+    by part as the part's assembly writes them: a mark printed between the
+    staves is labeled on both and kept once, and a reading that has it on
+    either staff has it. So such marks are judged as the score shows them
+    rather than staff by staff."""
+    parts: dict[str, dict[str, dict]] = {}
+    for r in records:
+        m = PART_STAFF.search(r.get('path', ''))
+        if m and not r.get('unreadable') and r.get('marks_truth') is not None:
+            parts.setdefault(m.group(1) + '-' + m.group(2), {})[m.group(3)] = r
+    out = {}
+    found = [(_part(p['1']['marks_truth'], p['2']['marks_truth']), _part(p['1']['marks_read'], p['2']['marks_read']))
+             for p in parts.values() if set(p) >= {'1', '2'}]
+    for name, prefix in (('hairpins', 'hp'), ('dynamics', 'dyn:')):
+        tp = fp = fn = 0
+        for truth, read in found:
+            t = collections.Counter({k: v for k, v in truth.items() if k[2].startswith(prefix)})
+            g = collections.Counter({k: v for k, v in read.items() if k[2].startswith(prefix)})
+            tp, fp, fn = tp + sum((t & g).values()), fp + sum((g - t).values()), fn + sum((t - g).values())
+        if tp + fn:
+            out[name] = _f1(tp, fp, fn)
+    return out
+
+
 def score(records: list[dict]) -> dict:
     """The scorecard of a group of staves."""
     ok = [r for r in records if not r.get('unreadable')]
@@ -93,7 +150,7 @@ def score(records: list[dict]) -> dict:
                 acc[k] += t[k]
     return {'staves': len(records), 'unreadable': len(records) - len(ok), 'note_f1': _f1(tp, fp, fn),
             'bars_exact': exact / max(1, bars), 'edits_per_staff': sum(edits(r) for r in ok) / max(1, len(ok)),
-            'marks': {f: _f1(*t) for f, t in fam.items() if t[0] + t[2]}}
+            'marks': {f: _f1(*t) for f, t in fam.items() if t[0] + t[2]}, 'marks_by_part': part_marks(ok)}
 
 
 def interval(records: list[dict], measure: str, rounds: int = 200, seed: int = 0) -> tuple[float, float]:

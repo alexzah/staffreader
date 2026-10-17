@@ -68,7 +68,7 @@ def measure(checkpoint, data: list[str], per_kind: int | None = 300, batch: int 
                 tally['staves'] += 1
                 tally['staves_exact'] += got == truth
                 try:
-                    r = metrics.compare(_score(truth), _score(got))
+                    r = metrics.compare(_score(truth), _score(got), frozenset(s.masks))
                 except Exception:
                     tally['unreadable'] += 1
                     if log:

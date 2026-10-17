@@ -1,0 +1,30 @@
+# E15d: fingering as editions print it. E15c's engravings fingered every note
+# of a run, and the reader then invented fingering on real pages (62 written,
+# 1 right). Here 4,000 keyboard scores are engraved with fingering on a note
+# or two in about half the bars (data._finger, sparse), on v3-mix's recipe,
+# steps and rate, compared with E15's control as E15b and E15c are. Judged by
+# fingering on the reserved piano pages (270 printed), how much fingering it
+# invents, and nothing worse than E13's chance.
+name: e15d-fingering-sparse
+base: models/v3-mix/last.pt
+steps: 3500
+lr: 0.0001
+runs:
+  sparse:
+    data:
+    - r2-single-quarter-v3
+    - r2-grand-v3
+    - r2-tenor-v3*2
+    - r3-vocal-pilot-v3
+    - r3-parts
+    - real3-v2-v3*8
+    - lieder-d-v2-v3*8
+    - orch-c-v2-v3*8
+    - pdmx-pilot-v3*32
+    - pdmx-a2-v3*32
+    - pdmx-a3-v3*32
+    - pdmx-recover-v3*32
+    - pdmx-b-v3*32
+    - pdmx-b-ens-v3*32
+    - r3-fingering-sparse
+    tasks: true

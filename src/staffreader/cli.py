@@ -108,6 +108,8 @@ def main():
                     help="also write the page's staves, systems and bars as JSON, in the --picture's pixels")
     rd.add_argument('--picture', type=pathlib.Path, help='also write the straightened page the layout was found on')
     sub.add_parser('fetch', help="download the ladder's answer keys into the cache")
+    st = sub.add_parser('stale', help='whether an evaluation folder still measures what one made now would')
+    st.add_argument('folder', type=pathlib.Path)
     ts = sub.add_parser('testset', help='build the reserved test sets from the scans that never train')
     ts.add_argument('--model', type=pathlib.Path, help='the model that places systems; the default reader by default')
     ts.add_argument('--plan', action='store_true', help='only list the scans and their transcriptions')
@@ -169,6 +171,12 @@ def main():
         from . import evaluate
         print(f'results at {evaluate.experiment(args.spec)}')
         return
+
+    if args.command == 'stale':
+        from . import evaluate
+        why = evaluate.stale(args.folder.expanduser())
+        print('\n'.join(f'stale: {w}' for w in why) if why else f'{args.folder.name} is current')
+        raise SystemExit(1 if why else 0)
 
     if args.command == 'progress':
         from . import progress

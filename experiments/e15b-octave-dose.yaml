@@ -1,0 +1,31 @@
+# E15b: the octave bass clef's dose alone. In E15 the three doses together
+# brought the ladder's engraved Mozart pages from 79.7% to 85.4% of bars
+# (the double bass's clef read with its 8 again), but failed the gate on
+# small slices with tremolos and hairpins, and fingering stayed at 0.
+# Here only the octave bass clef is weighed up (*4), on the same recipe,
+# steps and rate; it is compared with E15's control (models/e15-mark-
+# doses-control, runs/eval-e15-mark-doses-control), trained alone and
+# evaluated against that control's evaluation, not run again.
+name: e15b-octave-dose
+base: models/v3-mix/last.pt
+steps: 3500
+lr: 0.0001
+runs:
+  octave:
+    data:
+    - r2-single-quarter-v3
+    - r2-grand-v3
+    - r2-tenor-v3*2
+    - r3-vocal-pilot-v3
+    - r3-parts
+    - real3-v2-v3*8
+    - lieder-d-v2-v3*8
+    - orch-c-v2-v3*8
+    - pdmx-pilot-v3*32
+    - pdmx-a2-v3*32
+    - pdmx-a3-v3*32
+    - pdmx-recover-v3*32
+    - pdmx-b-v3*32
+    - pdmx-b-ens-v3*32
+    - dose-bass-octave*4
+    tasks: true

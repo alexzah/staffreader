@@ -1,0 +1,51 @@
+# E15: do rare marks read once the reader sees enough of them? On real
+# pages v3-mix reads no fingering (270 printed, F1 0), tremolos at 0.69, and
+# on engraved pages in a font it never trained on it lost the 8 under the
+# double bass's bass clef. Each is rare in training: fingering on 1,806
+# engraved staves, tremolos on 1,873, the octave bass clef on 8,290. The
+# variant weighs those staves up (fingering and tremolos *16, the octave
+# bass clef *4) on v3-mix's own recipe. Judged by fingering and tremolo F1
+# on the reserved pages, the ladder's engraved Mozart pages, and nothing
+# worse than E13's chance (real piano 1.7, voice 0.5, orchestra 0.5).
+name: e15-mark-doses
+base: models/v3-mix/last.pt
+steps: 3500
+lr: 0.0001
+runs:
+  control:
+    data: &recipe
+    - r2-single-quarter-v3
+    - r2-grand-v3
+    - r2-tenor-v3*2
+    - r3-vocal-pilot-v3
+    - r3-parts
+    - real3-v2-v3*8
+    - lieder-d-v2-v3*8
+    - orch-c-v2-v3*8
+    - pdmx-pilot-v3*32
+    - pdmx-a2-v3*32
+    - pdmx-a3-v3*32
+    - pdmx-recover-v3*32
+    - pdmx-b-v3*32
+    - pdmx-b-ens-v3*32
+    tasks: true
+  doses:
+    data:
+    - r2-single-quarter-v3
+    - r2-grand-v3
+    - r2-tenor-v3*2
+    - r3-vocal-pilot-v3
+    - r3-parts
+    - real3-v2-v3*8
+    - lieder-d-v2-v3*8
+    - orch-c-v2-v3*8
+    - pdmx-pilot-v3*32
+    - pdmx-a2-v3*32
+    - pdmx-a3-v3*32
+    - pdmx-recover-v3*32
+    - pdmx-b-v3*32
+    - pdmx-b-ens-v3*32
+    - dose-fingering*16
+    - dose-tremolo*16
+    - dose-bass-octave*4
+    tasks: true

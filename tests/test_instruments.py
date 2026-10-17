@@ -8,7 +8,11 @@ from staffreader import instruments as I
 def test_a_label_names_its_instrument_number_and_transposition():
     cases = {'Fl.': ('flute', None, 0), '2.Viol.': ('violin', '2', 0), 'Klar. (B)': ('clarinet', None, -2),
              'Corni in F': ('horn', None, -7), 'K-Fag.': ('contrabassoon', None, -12), 'Br.': ('viola', None, 0),
-             'Clarinetto I in A': ('clarinet', '1', -3), 'Trombe in D': ('trumpet', None, 2), 'Pauken': ('timpani', None, 0)}
+             'Clarinetto I in A': ('clarinet', '1', -3), 'Trombe in D': ('trumpet', None, 2), 'Pauken': ('timpani', None, 0),
+             'Corni in G.': ('horn', None, -5), 'Trombone Basso': ('trombone', None, 0), 'Basso.': ('bass', None, -12),
+             'Ophicleïde.': ('ophicleide', None, 0), 'Piatti.': ('cymbals', None, 0),
+             'Clarinettiin B': ('clarinet', None, -2),  # 'in' read run into the name
+             'Contrabassoon': ('contrabassoon', None, -12)}
     for label, (name, number, transpose) in cases.items():
         i = I.instrument(label)
         assert (i.name, i.number, i.transpose) == (name, number, transpose), label

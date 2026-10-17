@@ -202,8 +202,53 @@ VOICE_CLEFS = [(re.compile(r'sopran|canto|discant|cantus|superius', re.I), '1'),
                (re.compile(r'tenor', re.I), '4')]
 
 
+def _finger(root: ET.Element, rng: random.Random, sparse: bool = False) -> None:
+    """Fingering on a keyboard part's notes. As a teaching edition prints a
+    run: in about a third of the bars, every note gets a finger (each note
+    of a chord its own), 1 to 5, stepping as a hand does from one note to
+    the next. With [sparse], as most editions print it: in about half the
+    bars, a note or two get a finger, now and then a whole chord its own."""
+    count = 0
+    for part in root.findall('part'):
+        if not any(a.findtext('staves') not in (None, '1') for a in part.iter('attributes')):
+            continue
+        for m in part.findall('measure'):
+            if rng.random() > (0.5 if sparse else 0.35):
+                continue
+            notes = [n for n in m.findall('note')
+                     if n.find('rest') is None and n.find('grace') is None and n.find('pitch') is not None]
+            if sparse and notes:
+                heads = [k for k, n in enumerate(notes) if n.find('chord') is None]
+                chosen = set(rng.sample(heads, min(len(heads), rng.choice((1, 1, 2)))))
+                if rng.random() < 0.15:  # a whole chord fingered, its numbers stacked
+                    for k in list(chosen):
+                        j = k + 1
+                        while j < len(notes) and notes[j].find('chord') is not None:
+                            chosen.add(j)
+                            j += 1
+                notes = [n for k, n in enumerate(notes) if k in chosen]
+            finger = rng.randint(1, 5)
+            for n in notes:
+                if n.find('chord') is None:
+                    finger = min(5, max(1, finger + rng.choice((-2, -1, 1, 1, 2))))
+                    f = finger
+                else:
+                    f = rng.randint(1, 5)
+                notations = n.find('notations')
+                if notations is None:  # before any lyric, as MusicXML orders a note's parts
+                    notations = ET.Element('notations')
+                    lyric = n.find('lyric')
+                    n.insert(list(n).index(lyric) if lyric is not None else len(n), notations)
+                technical = notations.find('technical')
+                if technical is None:
+                    technical = ET.SubElement(notations, 'technical')
+                ET.SubElement(technical, 'fingering').text = str(f)
+                count += 1
+    root.set('fingered', str(count))
+
+
 def _clean(xml: bytes, tenor: bool = False, quiet_tuplets: bool = False, vocal: bool = False,
-           names: random.Random | None = None) -> str:
+           names: random.Random | None = None, fingering: random.Random | None = None, sparse: bool = False) -> str:
     """The score as MuseScore should engrave it for training: every bar
     drawn, nothing folded into a multi-bar rest, and laid out by
     MuseScore's own style rather than the upload's. With [tenor], each
@@ -217,7 +262,11 @@ def _clean(xml: bytes, tenor: bool = False, quiet_tuplets: bool = False, vocal: 
     editions print it in: soprano, alto or tenor clef. With [names] (a
     random source), each part an older edition would name gets such a
     name, full and short (instruments.historical), and the score counts
-    them in its 'renamed' attribute."""
+    them in its 'renamed' attribute. With [fingering] (a random source),
+    a keyboard part's notes get fingering, as teaching editions print it:
+    a run of notes in some bars, a finger 1 to 5 on each, since few
+    uploads carry it and the reader learns no rarer mark (E15); the score
+    counts them in its 'fingered' attribute."""
     root = _root(xml)
     if quiet_tuplets:
         for t in root.iter('tuplet'):
@@ -279,6 +328,8 @@ def _clean(xml: bytes, tenor: bool = False, quiet_tuplets: bool = False, vocal: 
                 el.attrib.pop('print-object', None)
             renamed += 1
         root.set('renamed', str(renamed))
+    if fingering:
+        _finger(root, fingering, sparse)
     return ET.tostring(root, encoding='unicode')
 
 
@@ -336,9 +387,13 @@ def staves_of(svg: pathlib.Path) -> tuple[list[dict], float, float]:
     return staves, width, space
 
 
-def text_boxes(svg: pathlib.Path, classes=('Lyrics', 'InstrumentName')) -> list[dict]:
+WORD_CLASSES = ('StaffText', 'SystemText', 'Expression', 'Tempo')
+
+
+def text_boxes(svg: pathlib.Path, classes=('Lyrics', 'InstrumentName') + WORD_CLASSES) -> list[dict]:
     """The box of each text MuseScore drew as an outline of a given class,
-    in SVG units: a syllable of lyrics, an instrument's name."""
+    in SVG units: a syllable of lyrics, an instrument's name, a direction
+    in words (dolce, a 2., a tempo)."""
     import re
     out = []
     for el in ET.parse(svg).getroot().iter():
@@ -367,6 +422,26 @@ def verse_text(part: ET.Element, staff: int, first: int, last: int, verse: str) 
                     lead = '-' if not out and ly.findtext('syllabic') in ('middle', 'end') else ''
                     out.append(lead + text + ('-' if ly.findtext('syllabic') in ('begin', 'middle') else '')
                                + ('_' if ly.find('extend') is not None else ''))
+    return out
+
+
+def direction_words(part: ET.Element, staff: int, first: int, last: int) -> list[str]:
+    """The directions printed in words on a staff across measures [first,
+    last], in order: a tempo, dolce, a 2., cresc. None at all where one runs
+    over more than a line or is MuseScore's mark of an instrument change,
+    since the boxes drawn would then not pair one to one."""
+    out = []
+    for m in part.findall('measure')[first:last + 1]:
+        for d in m.findall('direction'):
+            if int(d.findtext('staff', '1')) != staff:
+                continue
+            for w in d.iter('words'):
+                text = (w.text or '').strip()
+                if not text:
+                    continue
+                if '\n' in text or text.startswith('Change Instr'):
+                    return []
+                out.append(' '.join(text.split()))
     return out
 
 
@@ -426,10 +501,13 @@ def parts_alone(xml: str, rng: random.Random, most: int = 2) -> list[str]:
 
 
 def cut(name: str, svgs: list[pathlib.Path], exported: pathlib.Path, font: str, rng: random.Random,
-        out: pathlib.Path) -> list[dict]:
+        out: pathlib.Path, pages: bool = False) -> list[dict]:
     """Cut every system's staves of each part out of a score
     MuseScore engraved, with the tokens of what it prints. The tokens come
-    from MuseScore's own export of the score, so they say what it drew."""
+    from MuseScore's own export of the score, so they say what it drew.
+    With [pages], each page is kept whole too, with the boxes of the
+    directions in words it prints (pages/boxes.jsonl), to teach a finder
+    of words where on a page they stand."""
     root = _root(exported.read_bytes())
     parts = list(_parts(root))
     count = len(parts[0][0].findall('measure'))
@@ -464,6 +542,8 @@ def cut(name: str, svgs: list[pathlib.Path], exported: pathlib.Path, font: str, 
                        check=True)
         gray = cv2.imread(str(png), cv2.IMREAD_GRAYSCALE)
         boxes = text_boxes(svg)
+        if pages:
+            _keep_page(name, page, gray, boxes, zoom, space, out)
         ends = starts[1:] + [pages[page][0] if page < len(pages) else count]
         for s_i, (first, end) in enumerate(zip(starts, ends)):
             last = end - 1
@@ -485,6 +565,22 @@ def cut(name: str, svgs: list[pathlib.Path], exported: pathlib.Path, font: str, 
             for line in lines:
                 f.write(json.dumps({**line, 'font': font}) + '\n')
     return samples
+
+
+def _keep_page(name, page, gray, boxes, zoom, space, out) -> None:
+    """A whole engraved page and the boxes, in its pixels, of the directions
+    in words it prints; lyrics and staff labels are listed too, as text a
+    finder of directions should pass over."""
+    folder = out / 'pages' / name[:2]
+    folder.mkdir(parents=True, exist_ok=True)
+    file = folder / f'{name}-{page}.png'
+    cv2.imwrite(str(file), gray)
+    scale = lambda b: [round(v * zoom, 1) for v in b]  # noqa: E731
+    row = {'image': str(file.relative_to(out)), 'space': round(space * zoom, 2),
+           'words': [scale(b['box']) for b in boxes if b['class'] in WORD_CLASSES],
+           'other_text': [scale(b['box']) for b in boxes if b['class'] in ('Lyrics', 'InstrumentName')]}
+    with open(out / 'pages' / 'boxes.jsonl', 'a') as f:
+        f.write(json.dumps(row) + '\n')
 
 
 def _text_lines(name, page, s_i, first, last, parts, names, staves, boxes, base, first_staff, space, zoom, gray, out,
@@ -531,6 +627,31 @@ def _text_lines(name, page, s_i, first, last, parts, names, staves, boxes, base,
                 x0, x1 = staff['x0'], staff['x1']
                 img = gray[int(y0 * zoom):int(y1 * zoom) + 1, int(x0 * zoom):int(x1 * zoom) + 1]
                 save(img, ' '.join(syllables), 'lyrics', f'{k}-{st}-v{verse}')
+    # Directions in words: each box drawn near a staff, paired in order with
+    # the staff's words where they are as many.
+    worded = [b['box'] for b in boxes if b['class'] in WORD_CLASSES]
+    middles = [(s['lines'][0] + s['lines'][4]) / 2 for s in system]
+    near: dict[int, list] = {}
+    for b in worded:
+        cy = (b[1] + b[3]) / 2
+        n = min(range(len(system)), key=lambda i: abs(middles[i] - cy))
+        if system[n]['lines'][0] - 6 * space <= cy <= system[n]['lines'][4] + 6 * space:
+            near.setdefault(n, []).append(b)
+    for k, (part, c) in enumerate(parts):
+        for st in range(1, c + 1):
+            n = int(first_staff[k]) + st - 1
+            words = direction_words(part, st, first, last)
+            drawn = sorted(near.get(n, []), key=lambda b: b[0])
+            if not words or len(words) != len(drawn):
+                continue
+            for j, (text, b) in enumerate(zip(words, drawn)):
+                # A direction is short and has letters: figures typed as text
+                # ('743') and verses typed as staff text are paired but not kept.
+                if not any(ch.isalpha() for ch in text) or len(text) > 30 or len(text.split()) > 4:
+                    continue
+                img = gray[int((b[1] - 0.3 * space) * zoom):int((b[3] + 0.3 * space) * zoom) + 1,
+                           int((b[0] - 0.3 * space) * zoom):int((b[2] + 0.3 * space) * zoom) + 1]
+                save(img, text, 'words', f'w{k}-{st}-{j}')
     for b in (b['box'] for b in boxes if b['class'] == 'InstrumentName'):
         cy = (b[1] + b[3]) / 2
         if not (top - 2 * space <= cy <= bottom + 2 * space):
@@ -549,7 +670,7 @@ def _text_lines(name, page, s_i, first, last, parts, names, staves, boxes, base,
 
 def render(scores: list[dict], seed: int, out: pathlib.Path, tenor: bool = False,
            quiet_tuplets: bool = False, vocal: bool = False, names: bool = False,
-           player_parts: bool = False) -> list[dict]:
+           player_parts: bool = False, fingering: bool | str = False, pages: bool = False) -> list[dict]:
     """Engrave a batch of chosen scores in one MuseScore style and cut out
     their staves. MuseScore starts once for the batch; a batch it cannot
     finish is engraved again score by score. With [tenor], parts are
@@ -570,7 +691,10 @@ def render(scores: list[dict], seed: int, out: pathlib.Path, tenor: bool = False
                 raw = canonical.load(PDMX / score['mxl'])
                 if quiet_tuplets and b'<time-modification' not in raw:
                     continue  # only scores with tuplets
-                xml = _clean(raw, tenor, quiet_tuplets, vocal, rng if names else None)
+                xml = _clean(raw, tenor, quiet_tuplets, vocal, rng if names else None, rng if fingering else None,
+                             sparse=fingering == 'sparse')
+                if fingering and int(re.search(r' fingered="(\d+)"', xml).group(1)) < (3 if fingering == 'sparse' else 8):
+                    continue  # a score with no keyboard part to finger
                 if tenor and ' tenor="yes"' not in xml or vocal and ' vocal="yes"' not in xml:
                     continue
                 if names and int(re.search(r' renamed="(\d+)"', xml).group(1)) < 3:
@@ -610,7 +734,7 @@ def render(scores: list[dict], seed: int, out: pathlib.Path, tenor: bool = False
             try:
                 samples += [{**s, 'mxl': next(sc['mxl'] for sc in scores
                                                if hashlib.sha1(sc["mxl"].encode()).hexdigest()[:12] == name[:12])}
-                            for s in cut(name, svgs, exported, font, rng, out)
+                            for s in cut(name, svgs, exported, font, rng, out, pages)
                             if (not tenor or s['tokens'][:1] == ['clef:C4'])
                             and (not vocal or s['tokens'][:1] in (['clef:C1'], ['clef:C3'], ['clef:C4']))]
             except Exception:
@@ -619,9 +743,9 @@ def render(scores: list[dict], seed: int, out: pathlib.Path, tenor: bool = False
 
 
 def _render_one(args):
-    scores, seed, out, tenor, quiet, vocal, names, player_parts = args
+    scores, seed, out, tenor, quiet, vocal, names, player_parts, fingering, pages = args
     try:
-        return render(scores, seed, out, tenor, quiet, vocal, names, player_parts)
+        return render(scores, seed, out, tenor, quiet, vocal, names, player_parts, fingering, pages)
     except Exception as e:  # one bad batch never stops the run
         return [{'error': repr(e)[:300]}]
 
@@ -629,7 +753,8 @@ def _render_one(args):
 def render_all(name: str, limit: int | None = None, workers: int = 12, seed: int = 0,
                batch: int = 8, chosen: str = 'scores', grand_staff_only: bool = False,
                tenor: bool = False, quiet_tuplets: bool = False, vocal: bool = False,
-               names: bool = False, player_parts: bool = False) -> pathlib.Path:
+               names: bool = False, player_parts: bool = False, fingering: bool | str = False,
+               pages: bool = False) -> pathlib.Path:
     """Render the chosen scores into DATA/<name>: the staff pictures and
     an index of what each prints, index.jsonl."""
     scores = [json.loads(line) for line in (DATA / f'{chosen}.jsonl').read_text().splitlines()]
@@ -646,7 +771,7 @@ def render_all(name: str, limit: int | None = None, workers: int = 12, seed: int
     bar = Progress(f'render-{name}', len(batches), 'batches', f'engraving {len(scores)} PDMX scores with MuseScore')
     staves = 0
     with open(out / 'index.jsonl', 'w') as index, ProcessPoolExecutor(workers) as pool:
-        jobs = [(b, seed * 1_000_003 + i, out, tenor, quiet_tuplets, vocal, names, player_parts)
+        jobs = [(b, seed * 1_000_003 + i, out, tenor, quiet_tuplets, vocal, names, player_parts, fingering, pages)
                 for i, b in enumerate(batches)]
         for k, samples in enumerate(pool.map(_render_one, jobs), start=1):
             staves += sum('error' not in s for s in samples)

@@ -653,6 +653,9 @@ def to_musicxml(staves_of_parts: list[list[list[Bar]]], names: list[str] | None 
         if len(staves) == 2:
             _dedupe_between(staves[0], staves[1])
     top = staves_of_parts[0][0] if staves_of_parts and staves_of_parts[0] else []
+    # The meter of a page that prints none, from every part's bars: a part
+    # that only rests there has no bar of its own to count.
+    page_meter = _meter([bars for staves in staves_of_parts for bars in staves])
     for p, staves in enumerate(staves_of_parts):
         part = ET.SubElement(root, 'part', id=f'P{p + 1}')
         count = max(len(s) for s in staves)
@@ -695,7 +698,7 @@ def to_musicxml(staves_of_parts: list[list[list[Bar]]], names: list[str] | None 
                 t = ET.SubElement(attrs, 'time', **({'symbol': symbol} if symbol else {}))
                 ET.SubElement(t, 'beats').text = str(b)
                 ET.SubElement(t, 'beat-type').text = str(bt)
-            elif i == 0 and not any(bars and bars[0].time for bars in staves) and (meter := _meter(staves)):
+            elif i == 0 and not any(bars and bars[0].time for bars in staves) and (meter := page_meter):
                 # A page that starts mid-work prints no time signature, but
                 # its bars show the meter; it is written hidden, so a
                 # whole-bar rest takes the bar's length.

@@ -274,3 +274,22 @@ def test_musescore_s_own_export_keeps_every_mark(case_id):
     s = metrics.compare(canonical.read(x), canonical.read(out)).summary(case.masks)  # the families the case scores
     assert s['note_f1_core'] == 1.0
     assert all(v['f1'] >= 0.999 for v in s['marks'].values()), {f: v for f, v in s['marks'].items() if v['f1'] < 0.999}
+
+
+def test_a_key_signature_the_print_leaves_out_is_scored_by_its_pitches():
+    # The answer gives the horn a key of one flat; the edition prints none and a flat on the note.
+    from staffreader import measure
+    answer = measure._score(['clef:G2', 'key:-1', 'N:B4', 'd:half', 'N:A4', 'd:half', '|'])
+    printed = measure._score(['clef:G2', 'key:0', 'acc:flat', 'N:B4', 'd:half', 'N:A4', 'd:half', '|'])
+    masked = metrics.compare(answer, printed, frozenset({'key'}))
+    assert masked.summary()['bar_exact_full'] == 1.0 and not masked.errors
+    plain = metrics.compare(answer, printed)
+    assert plain.errors['key printed wrong or missed'] == 1
+
+
+def test_a_family_the_answer_leaves_out_is_not_scored():
+    from staffreader import measure
+    answer = measure._score(['clef:G2', 'key:0', 'N:C5', 'd:whole', '|'])
+    printed = measure._score(['clef:G2', 'key:0', 'hp<', 'N:C5', 'd:whole', '|'])
+    assert 'hairpins' in metrics.compare(answer, printed).families
+    assert 'hairpins' not in metrics.compare(answer, printed, frozenset({'hairpins'})).families

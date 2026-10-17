@@ -1087,6 +1087,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pyphen"
+version = "0.18.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/47/8430452269cd28863d73b903d07d329d058cf762527ff211b3864ba61fc7/pyphen-0.18.1.tar.gz", hash = "sha256:dbae6fbbe4f01cb206108b43573d857c67107be9d0e38eb1b08d6fa2210634a7", size = 2116411, upload-time = "2026-08-14T11:30:12.083Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ec/1d/23801cf008f71575f0a4800463f349afa5f04b27fe783178a45cdc4d5edf/pyphen-0.18.1-py3-none-any.whl", hash = "sha256:0aa9051e15928cecadd4c632cea0258ba57215b2a197a39baa46abcdb0f47e84", size = 2116143, upload-time = "2026-08-14T11:30:10.428Z" },
+]
+
+[[package]]
 name = "pytest"
 version = "9.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1254,6 +1263,7 @@ dependencies = [
     { name = "numpy" },
     { name = "opencv-python-headless" },
     { name = "pillow" },
+    { name = "pyphen" },
     { name = "pyyaml" },
     { name = "requests" },
     { name = "scipy" },
@@ -1272,6 +1282,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.0" },
     { name = "opencv-python-headless", specifier = ">=5.0.0.93" },
     { name = "pillow", specifier = ">=11" },
+    { name = "pyphen", specifier = ">=0.18.1" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "requests", specifier = ">=2.32" },
     { name = "scipy", specifier = ">=1.18.1" },
